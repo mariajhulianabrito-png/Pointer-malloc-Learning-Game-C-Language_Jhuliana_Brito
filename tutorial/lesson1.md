@@ -28,9 +28,9 @@ int main()
 
 ---
 
-# O que foi adicionado nesta etapa
+# O que tem nessa pasta
 
-Nesta primeira etapa aprendemos:
+Nesta primeira etapa aprenderemos:
 
 * criar uma janela gráfica
 * criar o loop principal do jogo
