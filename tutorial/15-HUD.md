@@ -66,227 +66,86 @@ Exemplos famosos:
 ---
 
 # Código Completo
-
-```c
-// =========================================
-// IMPORTA RAYLIB
-// =========================================
-
 #include "raylib.h"
-
-// =========================================
-// MAIN
-// =========================================
 
 int main(void)
 {
-    // Cria janela
     InitWindow(1000, 600, "HUD em Raylib");
 
-    // Define FPS
     SetTargetFPS(60);
 
-    // =========================================
-    // JOGADOR
-    // =========================================
-
-    // Posição inicial
-    Vector2 jogador = { 400, 300 };
-
-    // Velocidade
+    Vector2 jogador = { 480, 300 };
     float velocidade = 4.0f;
 
-    // =========================================
-    // HUD
-    // =========================================
-
-    // Pontuação
     int score = 0;
-
-    // Vida atual
     int vida = 100;
-
-    // Munição
     int municao = 30;
-
-    // Tempo de jogo
     float tempo = 0;
-
-    // =========================================
-    // LOOP PRINCIPAL
-    // =========================================
 
     while (!WindowShouldClose())
     {
-        // =========================================
-        // UPDATE
-        // =========================================
-
-        // Atualiza tempo
         tempo += GetFrameTime();
 
-        // Movimento direita
-        if (IsKeyDown(KEY_RIGHT))
-            jogador.x += velocidade;
+        if (IsKeyDown(KEY_RIGHT)) jogador.x += velocidade;
+        if (IsKeyDown(KEY_LEFT))  jogador.x -= velocidade;
+        if (IsKeyDown(KEY_UP))    jogador.y -= velocidade;
+        if (IsKeyDown(KEY_DOWN))  jogador.y += velocidade;
 
-        // Movimento esquerda
-        if (IsKeyDown(KEY_LEFT))
-            jogador.x -= velocidade;
-
-        // Movimento cima
-        if (IsKeyDown(KEY_UP))
-            jogador.y -= velocidade;
-
-        // Movimento baixo
-        if (IsKeyDown(KEY_DOWN))
-            jogador.y += velocidade;
-
-        // Simula ganhar pontos
         if (IsKeyPressed(KEY_P))
         {
             score += 10;
         }
 
-        // Simula tomar dano
         if (IsKeyPressed(KEY_H))
         {
             vida -= 10;
-
-            if (vida < 0)
-                vida = 0;
+            if (vida < 0) vida = 0;
         }
 
-        // Simula gastar munição
         if (IsKeyPressed(KEY_SPACE))
         {
             municao--;
-
-            if (municao < 0)
-                municao = 0;
+            if (municao < 0) municao = 0;
         }
-
-        // =========================================
-        // DRAW
-        // =========================================
 
         BeginDrawing();
 
-        // Fundo
         ClearBackground(RAYWHITE);
 
-        // =========================================
-        // MUNDO DO JOGO
-        // =========================================
-
-        // Desenha jogador
-        DrawRectangleV(
-            jogador,
-            (Vector2){40, 40},
-            BLUE
-        );
-
-        // =========================================
-        // HUD
-        // =========================================
+        // Mundo do jogo
+        DrawRectangleV(jogador, (Vector2){ 40, 40 }, BLUE);
 
         // Fundo da HUD
-        DrawRectangle(
-            0,
-            0,
-            1000,
-            90,
-            LIGHTGRAY
-        );
-
-        // Linha separadora
-        DrawLine(
-            0,
-            90,
-            1000,
-            90,
-            DARKGRAY
-        );
+        DrawRectangle(0, 0, 1000, 115, LIGHTGRAY);
+        DrawLine(0, 115, 1000, 115, DARKGRAY);
 
         // Título
-        DrawText(
-            "HUD DO JOGO",
-            20,
-            15,
-            30,
-            DARKBLUE
-        );
+        DrawText("HUD DO JOGO", 20, 15, 28, DARKBLUE);
 
         // Score
-        DrawText(
-            TextFormat("Score: %d", score),
-            20,
-            55,
-            20,
-            BLACK
-        );
+        DrawText(TextFormat("Score: %d", score), 20, 65, 20, BLACK);
 
         // Vida
-        DrawText(
-            TextFormat("Vida: %d", vida),
-            220,
-            55,
-            20,
-            BLACK
-        );
+        DrawText(TextFormat("Vida: %d", vida), 220, 65, 20, BLACK);
+
+        // Barra de vida
+        DrawRectangle(220, 40, 200, 20, RED);
+        DrawRectangle(220, 40, vida * 2, 20, GREEN);
+        DrawRectangleLines(220, 40, 200, 20, BLACK);
 
         // Munição
-        DrawText(
-            TextFormat("Municao: %d", municao),
-            420,
-            55,
-            20,
-            BLACK
-        );
+        DrawText(TextFormat("Municao: %d", municao), 470, 65, 20, BLACK);
 
         // Tempo
-        DrawText(
-            TextFormat("Tempo: %.1f", tempo),
-            650,
-            55,
-            20,
-            BLACK
-        );
+        DrawText(TextFormat("Tempo: %.1f", tempo), 700, 65, 20, BLACK);
 
-        // =========================================
-        // BARRA DE VIDA
-        // =========================================
-
-        // Fundo vermelho
-        DrawRectangle(
-            220,
-            25,
-            200,
-            20,
-            RED
-        );
-
-        // Vida verde
-        DrawRectangle(
-            220,
-            25,
-            vida * 2,
-            20,
-            GREEN
-        );
-
-        // Texto explicativo
-        DrawText(
-            "P = Pontos | H = Dano | ESPACO = Gasta Municao",
-            20,
-            560,
-            18,
-            MAROON
-        );
+        // Instruções
+        DrawText("P = Pontos | H = Dano | ESPACO = Gasta Municao",
+                 20, 560, 18, MAROON);
 
         EndDrawing();
     }
 
-    // Fecha janela
     CloseWindow();
 
     return 0;
