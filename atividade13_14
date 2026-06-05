@@ -1,8 +1,19 @@
+// =========================================
+// IMPORTA BIBLIOTECAS
+// =========================================
+
 #include "raylib.h"
-#include "stdlib.h" 
+#include "stdlib.h" // Usado para a função rand() da comida
+
+// =========================================
+// CONSTANTES
+// =========================================
 
 #define MAX_PARTICULAS 100
 
+// =========================================
+// STRUCTS
+// =========================================
 
 typedef enum GameState
 {
@@ -22,6 +33,9 @@ typedef struct Particula
     Color cor;
 } Particula;
 
+// =========================================
+// FUNÇÃO PARA CRIAR EXPLOSÃO
+// =========================================
 
 void CriarExplosao(Particula particulas[], Vector2 origem)
 {
@@ -38,21 +52,27 @@ void CriarExplosao(Particula particulas[], Vector2 origem)
             particulas[i].tamanho = GetRandomValue(3, 7);
             particulas[i].tempoVida = 0.8f;
 
-            // Mantendo a paleta: partículas brilham em AMARELO ao explodir
+            // Partículas brilham em AMARELO ao explodir
             particulas[i].cor = YELLOW; 
         }
     }
 }
 
+// =========================================
+// MAIN
+// =========================================
 
 int main(void)
 {
-    // Cria janela
-    InitWindow(1000, 600, "Jogo da Minhoca - Sprite Sheet Animada");
+    // Cria janela na nova proporção de 1200x700 da câmera
+    InitWindow(1200, 700, "Jogo da Minhoca - Camera 2D");
 
     SetTargetFPS(60);
 
-    
+    // =========================================
+    // CARREGA TEXTURA E CONFIGURA FRAMES
+    // =========================================
+
     Texture2D sprite = LoadTexture("player.png");
 
     int frames = 4;
@@ -63,56 +83,75 @@ int main(void)
     float tempoAnimacao = 0;
     float velocidadAnimacao = 0.15f;
 
-    
+    // =========================================
+    // VARIÁVEIS DO JOGO E DA CÂMERA
+    // =========================================
 
-    
+    // Sistema de partículas
     Particula particulas[MAX_PARTICULAS] = { 0 };
 
-    
+    // Estado inicial
     GameState estadoAtual = MENU;
 
-    Vector2 jogador = { 500, 350 };
+    // Posição inicial no mundo amplo
+    Vector2 jogador = { 500, 500 };
     float velocidade = 4.0f;
 
+    // Configuração da câmera 2D
+    Camera2D camera = { 0 };
+    camera.offset = (Vector2){ 600, 350 }; // Centro da tela (1200/2, 700/2)
+    camera.target = jogador;               // Foca no jogador
+    camera.rotation = 0.0f;
+    camera.zoom = 1.0f;
+
+    // Corpo da Minhoca
     Vector2 corpo[100];
     int tamanhoMinhoca = 3;
 
-    Vector2 comida = { 300, 400 };
+    // Comida espalhada pelo mapa
+    Vector2 comida = { 800, 600 };
 
+    // Variáveis da HUD
     int score = 0;
     int nivelVelocidade = 1;
     float tempo = 0;
 
+    // =========================================
+    // LOOP PRINCIPAL
+    // =========================================
 
     while (!WindowShouldClose())
     {
         float delta = GetFrameTime();
 
-    
+        // =========================================
+        // UPDATE DA ANIMAÇÃO DO SPREADSHEET
+        // =========================================
         tempoAnimacao += delta;
-
         if (tempoAnimacao >= velocidadAnimacao)
         {
             frameAtual++;
-            if (frameAtual >= frames)
-            {
-                frameAtual = 0;
-            }
+            if (frameAtual >= frames) frameAtual = 0;
             tempoAnimacao = 0;
         }
 
+        // =========================================
+        // UPDATE DO JOGO
+        // =========================================
 
         if (estadoAtual == MENU)
         {
             if (IsKeyPressed(KEY_ENTER))
             {
-                jogador = (Vector2){ 500, 350 };
+                jogador = (Vector2){ 500, 500 };
                 tamanhoMinhoca = 3;
                 for (int i = 0; i < tamanhoMinhoca; i++) corpo[i] = jogador;
                 score = 0;
                 tempo = 0;
                 nivelVelocidade = 1;
                 velocidade = 4.0f;
+                camera.zoom = 1.0f;
+                camera.rotation = 0.0f;
                 
                 for (int i = 0; i < MAX_PARTICULAS; i++) particulas[i].ativa = false;
 
@@ -130,19 +169,32 @@ int main(void)
         {
             tempo += delta;
 
+            // Atualiza histórico do corpo
             for (int i = tamanhoMinhoca - 1; i > 0; i--)
             {
                 corpo[i] = corpo[i - 1];
             }
             corpo[0] = jogador;
 
+            // Movimentação
             if (IsKeyDown(KEY_RIGHT)) jogador.x += velocidade;
             if (IsKeyDown(KEY_LEFT))  jogador.x -= velocidade;
             if (IsKeyDown(KEY_UP))    jogador.y -= velocidade;
             if (IsKeyDown(KEY_DOWN))  jogador.y += velocidade;
 
-            if (jogador.y < 135) jogador.y = 135; 
+            // Atualiza o foco da câmera para seguir a cabeça da minhoca
+            camera.target = jogador;
 
+            // Controle dinâmico do zoom com o mouse wheel
+            camera.zoom += GetMouseWheelMove() * 0.1f;
+            if (camera.zoom < 0.5f) camera.zoom = 0.5f;
+            if (camera.zoom > 2.0f) camera.zoom = 2.0f;
+
+            // Rotação da câmera pelas teclas Q e E
+            if (IsKeyDown(KEY_Q)) camera.rotation -= 50 * delta;
+            if (IsKeyDown(KEY_E)) camera.rotation += 50 * delta;
+
+            // COLISÃO: Comeu a fruta amarela?
             if (CheckCollisionCircles(jogador, 15, comida, 10))
             {
                 CriarExplosao(particulas, comida);
@@ -150,10 +202,12 @@ int main(void)
                 score += 10;
                 if (tamanhoMinhoca < 100) tamanhoMinhoca += 2;
 
-                comida.x = (float)(GetRandomValue(40, 960));
-                comida.y = (float)(GetRandomValue(150, 540));
+                // Reposiciona a comida em uma área aleatória do mapa do mundo
+                comida.x = (float)(GetRandomValue(-1500, 1500));
+                comida.y = (float)(GetRandomValue(-1500, 1500));
             }
 
+            // Mudar velocidade manualmente com ESPAÇO
             if (IsKeyPressed(KEY_SPACE))
             {
                 nivelVelocidade++;
@@ -165,6 +219,7 @@ int main(void)
                 }
             }
 
+            // Colisão com o corpo
             for (int i = 10; i < tamanhoMinhoca; i++)
             {
                 if (CheckCollisionCircles(jogador, 12, corpo[i], 12))
@@ -179,7 +234,7 @@ int main(void)
         {
             if (IsKeyPressed(KEY_R))
             {
-                jogador = (Vector2){ 500, 350 };
+                jogador = (Vector2){ 500, 500 };
                 tamanhoMinhoca = 3;
                 for (int i = 0; i < tamanhoMinhoca; i++) corpo[i] = jogador;
                 score = 0;
@@ -206,21 +261,9 @@ int main(void)
             }
         }
 
-        Rectangle source = {
-            frameAtual * larguraFrame,
-            0,
-            larguraFrame,
-            alturaFrame
-        };
-
-        Rectangle dest = {
-            jogador.x,
-            jogador.y,
-            40, // Largura final que a cabeça terá na tela
-            40  // Altura final que a cabeça terá na tela
-        };
-
-        // Define a origem do desenho no meio do frame para que a rotação e colisão fiquem perfeitas
+        // Configuração dos retângulos para renderizar a sprite
+        Rectangle source = { frameAtual * larguraFrame, 0, larguraFrame, alturaFrame };
+        Rectangle dest = { jogador.x, jogador.y, 40, 40 };
         Vector2 centroSprite = { 20, 20 };
 
         // =========================================
@@ -228,43 +271,54 @@ int main(void)
         // =========================================
 
         BeginDrawing();
-        ClearBackground(BLACK);
+        ClearBackground(BLACK); // Fundo limpo para valorizar tons neon
 
         if (estadoAtual == MENU)
         {
-            DrawText("MINHOCA ARCADE", 340, 180, 36, PINK);
-            DrawText("Pressione ENTER para iniciar", 320, 280, 24, YELLOW);
-            DrawText("Pressione I para Instrucoes", 335, 330, 24, YELLOW);
+            DrawText("MINHOCA ARCADE 2D", 400, 220, 36, PINK);
+            DrawText("Pressione ENTER para iniciar", 410, 320, 24, YELLOW);
+            DrawText("Pressione I para Instrucoes", 430, 370, 24, YELLOW);
         }
         else if (estadoAtual == INSTRUCTIONS)
         {
-            DrawText("INSTRUCOES", 400, 150, 36, PINK);
-            DrawText("Use as setas para mover a minhoca.", 280, 250, 22, YELLOW);
-            DrawText("Pegue as frutas amarelas para crescer e explodir particulas!", 170, 300, 22, PINK);
-            DrawText("Pressione BACKSPACE para voltar.", 310, 400, 22, YELLOW);
+            DrawText("INSTRUCOES DO MAPA", 410, 150, 36, PINK);
+            DrawText("Use as setas para se mover por todo o mapa espacial.", 310, 250, 22, YELLOW);
+            DrawText("Scroll do Mouse altera o ZOOM | Teclas Q e E ROTACIONAM a tela.", 250, 300, 22, PINK);
+            DrawText("Pressione BACKSPACE para voltar.", 420, 420, 22, YELLOW);
         }
         else if (estadoAtual == GAME)
         {
-            // DESENHA COMIDA (Bolinha Amarela)
+            // =========================================
+            // COMEÇA MODO CÂMERA (Desenha coisas do mundo)
+            // =========================================
+            BeginMode2D(camera);
+
+            // Grid estrutural do mundo amplo (Tons cinzas discretos)
+            for (int x = -2000; x <= 2000; x += 100)
+            {
+                DrawLine(x, -2000, x, 2000, DARKGRAY);
+            }
+            for (int y = -2000; y <= 2000; y += 100)
+            {
+                DrawLine(-2000, y, 2000, y, DARKGRAY);
+            }
+
+            // Centro do Mapa (Marcador Amarelo discreto)
+            DrawCircle(0, 0, 15, YELLOW);
+
+            // Desenha Fruta (Bolinha Amarela) no mundo
             DrawCircleV(comida, 10, YELLOW);
 
-            // DESENHA O CORPO DA MINHOCA (Bolinhas Pink menores)
+            // Desenha o corpo em segmentos circulares em tom PINK
             for (int i = 0; i < tamanhoMinhoca; i++)
             {
                 DrawCircleV(corpo[i], 12, PINK);
             }
 
-            
-            DrawTexturePro(
-                sprite,
-                source,
-                dest,
-                centroSprite,
-                0,
-                PINK 
-            );
+            // Desenha a cabeça usando a sprite sheet animada e matiz PINK
+            DrawTexturePro(sprite, source, dest, centroSprite, 0, PINK);
 
-            // DESENHA AS PARTÍCULAS DA EXPLOSÃO (Amarelas)
+            // Desenha as partículas da explosão no mundo (Amarelas)
             for (int i = 0; i < MAX_PARTICULAS; i++)
             {
                 if (particulas[i].ativa)
@@ -273,39 +327,44 @@ int main(void)
                 }
             }
 
+            EndMode2D();
             // =========================================
-            // HUD DESIGN (Tons de Pink e Amarelo)
+            // TERMINA MODO CÂMERA 
             // =========================================
-            DrawRectangle(0, 0, 1000, 115, DARKGRAY);
-            DrawLine(0, 115, 1000, 115, PINK);
 
-            DrawText("SNAKE GAME", 20, 15, 28, YELLOW);
+            // =========================================
+            // INTERFACE HUD FIXA NA TELA (Fora do Mode2D)
+            // =========================================
+            DrawRectangle(0, 0, 1200, 120, Fade(DARKGRAY, 0.85f));
+            DrawLine(0, 120, 1200, 120, PINK);
+
+            DrawText("SNAKE WORLD 2D", 20, 15, 28, YELLOW);
             DrawText(TextFormat("Frutas: %d", score / 10), 20, 65, 20, YELLOW);
-            DrawText(TextFormat("Tamanho: %d", tamanhoMinhoca), 220, 65, 20, PINK);
+            DrawText(TextFormat("Tamanho: %d", tamanhoMinhoca), 200, 65, 20, PINK);
 
-            // Barra de Crescimento
-            DrawRectangle(220, 40, 200, 20, BLACK);
-            DrawRectangle(220, 40, tamanhoMinhoca * 2, 20, PINK); 
-            DrawRectangleLines(220, 40, 200, 20, YELLOW);         
+            // Barra de Progresso
+            DrawRectangle(200, 40, 200, 20, BLACK);
+            DrawRectangle(200, 40, tamanhoMinhoca * 2, 20, PINK); 
+            DrawRectangleLines(200, 40, 200, 20, YELLOW);         
 
-            DrawText(TextFormat("Velocidade: Nivel %d", nivelVelocidade), 470, 65, 20, YELLOW);
-            DrawText(TextFormat("Tempo: %.1f s", tempo), 750, 65, 20, PINK);
+            DrawText(TextFormat("Velocidade: Nivel %d", nivelVelocidade), 440, 65, 20, YELLOW);
+            DrawText(TextFormat("Zoom: %.2f", camera.zoom), 680, 65, 20, PINK);
+            DrawText(TextFormat("Tempo: %.1f s", tempo), 860, 65, 20, YELLOW);
             
-            // Info extra da Sprite na tela
-            DrawText(TextFormat("Frame Cabeça: %d", frameAtual), 470, 15, 16, YELLOW);
-            DrawText("ESPACO = Aumentar Velocidade", 20, 565, 18, YELLOW);
+            DrawText("ESPACO = Velocidade | Mouse Wheel = Zoom | Q/E = Rotacao", 20, 565, 18, YELLOW);
         }
         else if (estadoAtual == GAME_OVER)
         {
-            DrawText("GAME OVER", 370, 180, 48, PINK);
-            DrawText(TextFormat("Pontuacao final: %d pontos", score), 360, 260, 22, YELLOW);
-            DrawText("Pressione R para Reiniciar", 345, 340, 22, YELLOW);
-            DrawText("Pressione M para ir ao Menu", 340, 380, 22, PINK);
+            DrawText("GAME OVER", 470, 200, 48, PINK);
+            DrawText(TextFormat("Sua minhoca alcancou %d pontos", score), 450, 280, 22, YELLOW);
+            DrawText("Pressione R para Reiniciar", 445, 360, 22, YELLOW);
+            DrawText("Pressione M para ir ao Menu", 440, 400, 22, PINK);
         }
 
         EndDrawing();
     }
 
+    // Libera texturas da memória
     UnloadTexture(sprite);
     CloseWindow();
     
