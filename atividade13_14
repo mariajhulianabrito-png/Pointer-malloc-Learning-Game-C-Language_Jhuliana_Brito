@@ -1,0 +1,170 @@
+#include "raylib.h"
+#include "stdlib.h" 
+
+typedef enum GameState
+{
+    MENU,
+    GAME,
+    INSTRUCTIONS,
+    GAME_OVER
+} GameState;
+
+int main(void)
+{
+    InitWindow(800, 450, "Jogo da Minhoca");
+
+    SetTargetFPS(60);
+
+    GameState estadoAtual = MENU;
+
+    Vector2 jogador = { 400, 225 };
+
+    float velocidade = 3.0f;
+
+    Vector2 corpo[100];      
+    int tamanhoMinhoca = 3;  
+    
+    
+    Vector2 comida = { 200, 200 };
+    // --------------------------------------
+
+    // Loop principal
+    while (!WindowShouldClose())
+    {
+        
+
+        if (estadoAtual == MENU)
+        {
+            if (IsKeyPressed(KEY_ENTER))
+            {
+        
+                jogador = (Vector2){ 400, 225 };
+                tamanhoMinhoca = 3;
+                for (int i = 0; i < tamanhoMinhoca; i++) corpo[i] = jogador;
+                estadoAtual = GAME;
+            }
+
+            if (IsKeyPressed(KEY_I))
+            {
+                estadoAtual = INSTRUCTIONS;
+            }
+
+            if (IsKeyPressed(KEY_ESCAPE))
+            {
+                break;
+            }
+        }
+        else if (estadoAtual == INSTRUCTIONS)
+        {
+            if (IsKeyPressed(KEY_BACKSPACE))
+            {
+                estadoAtual = MENU;
+            }
+        }
+        else if (estadoAtual == GAME)
+        {
+        
+            for (int i = tamanhoMinhoca - 1; i > 0; i--)
+            {
+                corpo[i] = corpo[i - 1];
+            }
+            corpo[0] = jogador; 
+            
+            if (IsKeyDown(KEY_RIGHT)) jogador.x += velocidade;
+            if (IsKeyDown(KEY_LEFT))  jogador.x -= velocidade;
+            if (IsKeyDown(KEY_UP))    jogador.y -= velocidade;
+            if (IsKeyDown(KEY_DOWN))  jogador.y += velocidade;
+
+            if (CheckCollisionCircles(jogador, 12, comida, 8))
+            {
+                if (tamanhoMinhoca < 100)
+                {
+                    tamanhoMinhoca++;
+                }
+                
+                comida.x = (float)(rand() % 760 + 20);
+                comida.y = (float)(rand() % 410 + 20);
+            }
+
+            for (int i = 10; i < tamanhoMinhoca; i++)
+            {
+                if (CheckCollisionCircles(jogador, 10, corpo[i], 10))
+                {
+                    estadoAtual = GAME_OVER;
+                }
+            }
+
+            if (IsKeyPressed(KEY_G))
+            {
+                estadoAtual = GAME_OVER;
+            }
+        }
+        else if (estadoAtual == GAME_OVER)
+        {
+            if (IsKeyPressed(KEY_R))
+            {
+                jogador = (Vector2){ 400, 225 };
+                tamanhoMinhoca = 3; // Reseta o tamanho
+                for (int i = 0; i < tamanhoMinhoca; i++) corpo[i] = jogador;
+                estadoAtual = GAME;
+            }
+
+            if (IsKeyPressed(KEY_M))
+            {
+                jogador = (Vector2){ 400, 225 };
+                estadoAtual = MENU;
+            }
+        }
+
+        
+        BeginDrawing();
+
+        ClearBackground(DARKGRAY);
+
+        if (estadoAtual == MENU)
+        {
+            DrawText("Jogo da Minhoca", 240, 90, 32, PINK);
+            DrawText("Pressione ENTER para jogar", 250, 170, 22, YELLOW);
+            DrawText("Pressione I para instrucoes", 260, 210, 22, YELLOW);
+            DrawText("Pressione ESC para sair", 275, 250, 22, YELLOW);
+        }
+        else if (estadoAtual == INSTRUCTIONS)
+        {
+            DrawText("INSTRUCOES", 300, 80, 32, PINK);
+            DrawText("Use as setas para mover a minhoca.", 180, 160, 22, PINK);
+            DrawText("Coma as bolinhas vermelhas para crescer!", 160, 200, 22, GREEN);
+            DrawText("Cuidado para nao morder seu proprio corpo.", 150, 240, 22, PINK);
+            DrawText("Pressione BACKSPACE para voltar.", 180, 300, 22, YELLOW);
+        }
+        else if (estadoAtual == GAME)
+        {
+            DrawText("JOGO RODANDO", 20, 20, 24, PINK);
+            DrawText("Use as setas para mover", 20, 55, 18, PINK);
+            
+            
+            DrawText(TextFormat("Tamanho: %d", tamanhoMinhoca), 650, 20, 20, PINK);
+
+            DrawCircleV(comida, 8, RED);
+
+            for (int i = 0; i < tamanhoMinhoca; i++)
+            {
+                DrawCircleV(corpo[i], 10, LIME);
+            }
+
+            DrawCircleV(jogador, 12, PINK);
+        }
+        else if (estadoAtual == GAME_OVER)
+        {
+            DrawText("GAME OVER", 270, 120, 48, PINK);
+            DrawText(TextFormat("Sua minhoca cresceu ate o tamanho: %d", tamanhoMinhoca), 200, 180, 20, WHITE);
+            DrawText("Pressione R para reiniciar", 260, 240, 22, YELLOW);
+            DrawText("Pressione M para voltar ao menu", 235, 280, 22, PINK);
+        }
+
+        EndDrawing();
+    }
+
+    CloseWindow();
+
+    return 0;
+}
