@@ -1,19 +1,8 @@
-// =========================================
-// IMPORTA BIBLIOTECAS
-// =========================================
-
 #include "raylib.h"
-#include "stdlib.h" // Usado para a função rand() da comida
-
-// =========================================
-// CONSTANTES
-// =========================================
+#include "stdlib.h" 
 
 #define MAX_PARTICULAS 100
 
-// =========================================
-// STRUCTS
-// =========================================
 
 typedef enum GameState
 {
@@ -33,9 +22,6 @@ typedef struct Particula
     Color cor;
 } Particula;
 
-// =========================================
-// FUNÇÃO PARA CRIAR EXPLOSÃO
-// =========================================
 
 void CriarExplosao(Particula particulas[], Vector2 origem)
 {
@@ -46,70 +32,80 @@ void CriarExplosao(Particula particulas[], Vector2 origem)
             particulas[i].ativa = true;
             particulas[i].posicao = origem;
 
-            // Velocidades aleatórias para dispersar em todas as direções
             particulas[i].velocidade.x = GetRandomValue(-200, 200) / 100.0f;
             particulas[i].velocidade.y = GetRandomValue(-200, 200) / 100.0f;
 
             particulas[i].tamanho = GetRandomValue(3, 7);
-            particulas[i].tempoVida = 0.8f; // Duração do brilho das partículas
+            particulas[i].tempoVida = 0.8f;
 
-            // Seguindo sua paleta: partículas brilham em AMARELO ao explodir
+            // Mantendo a paleta: partículas brilham em AMARELO ao explodir
             particulas[i].cor = YELLOW; 
         }
     }
 }
 
-// =========================================
-// MAIN
-// =========================================
 
 int main(void)
 {
-    // Cria janela (Mantendo a proporção da HUD de 1000x600)
-    InitWindow(1000, 600, "Jogo da Minhoca - Particulas Pink e Amarelo");
+    // Cria janela
+    InitWindow(1000, 600, "Jogo da Minhoca - Sprite Sheet Animada");
 
     SetTargetFPS(60);
 
-    // Sistema de partículas
+    
+    Texture2D sprite = LoadTexture("player.png");
+
+    int frames = 4;
+    int frameAtual = 0;
+    int larguraFrame = sprite.width / frames;
+    int alturaFrame = sprite.height;
+    
+    float tempoAnimacao = 0;
+    float velocidadAnimacao = 0.15f;
+
+    
+
+    
     Particula particulas[MAX_PARTICULAS] = { 0 };
 
-    // Estado inicial
+    
     GameState estadoAtual = MENU;
 
-    // Jogador (Cabeça da Minhoca)
     Vector2 jogador = { 500, 350 };
     float velocidade = 4.0f;
 
-    // Corpo da Minhoca
     Vector2 corpo[100];
     int tamanhoMinhoca = 3;
 
-    // Comida/Fruta
     Vector2 comida = { 300, 400 };
 
-    // Variáveis da HUD
     int score = 0;
     int nivelVelocidade = 1;
     float tempo = 0;
 
-    // =========================================
-    // LOOP PRINCIPAL
-    // =========================================
 
     while (!WindowShouldClose())
     {
-        // Delta time necessário para atualizar as partículas uniformemente
         float delta = GetFrameTime();
 
-        // =========================================
-        // UPDATE
-        // =========================================
+    
+        tempoAnimacao += delta;
+
+        if (tempoAnimacao >= velocidadAnimacao)
+        {
+            frameAtual++;
+            if (frameAtual >= frames)
+            {
+                frameAtual = 0;
+            }
+            tempoAnimacao = 0;
+        }
+
 
         if (estadoAtual == MENU)
         {
             if (IsKeyPressed(KEY_ENTER))
             {
-                // Inicializa/Reseta jogo
                 jogador = (Vector2){ 500, 350 };
                 tamanhoMinhoca = 3;
                 for (int i = 0; i < tamanhoMinhoca; i++) corpo[i] = jogador;
@@ -118,7 +114,6 @@ int main(void)
                 nivelVelocidade = 1;
                 velocidade = 4.0f;
                 
-                // Desativa partículas antigas
                 for (int i = 0; i < MAX_PARTICULAS; i++) particulas[i].ativa = false;
 
                 estadoAtual = GAME;
@@ -135,37 +130,30 @@ int main(void)
         {
             tempo += delta;
 
-            // Atualiza histórico do corpo
             for (int i = tamanhoMinhoca - 1; i > 0; i--)
             {
                 corpo[i] = corpo[i - 1];
             }
             corpo[0] = jogador;
 
-            // Movimentação (Restringida para não subir em cima da HUD na colisão visual)
             if (IsKeyDown(KEY_RIGHT)) jogador.x += velocidade;
             if (IsKeyDown(KEY_LEFT))  jogador.x -= velocidade;
             if (IsKeyDown(KEY_UP))    jogador.y -= velocidade;
             if (IsKeyDown(KEY_DOWN))  jogador.y += velocidade;
 
-            // Evita que a cabeça entre na HUD superior (Y < 115)
             if (jogador.y < 135) jogador.y = 135; 
 
-            // COLISÃO: Comeu a bolinha amarela?
             if (CheckCollisionCircles(jogador, 15, comida, 10))
             {
-                // GERA EXPLOSÃO DE PARTÍCULAS NA POSIÇÃO DA COMIDA!
                 CriarExplosao(particulas, comida);
 
                 score += 10;
                 if (tamanhoMinhoca < 100) tamanhoMinhoca += 2;
 
-                // Nova posição para a comida (dentro do limite da tela de jogo)
                 comida.x = (float)(GetRandomValue(40, 960));
                 comida.y = (float)(GetRandomValue(150, 540));
             }
 
-            // Mudar velocidade manualmente (Simulador da HUD anterior)
             if (IsKeyPressed(KEY_SPACE))
             {
                 nivelVelocidade++;
@@ -177,7 +165,6 @@ int main(void)
                 }
             }
 
-            // Colisão com o próprio corpo (Game Over se morder a cauda)
             for (int i = 10; i < tamanhoMinhoca; i++)
             {
                 if (CheckCollisionCircles(jogador, 12, corpo[i], 12))
@@ -202,7 +189,7 @@ int main(void)
             if (IsKeyPressed(KEY_M)) estadoAtual = MENU;
         }
 
-        // ATUALIZAÇÃO DAS PARTÍCULAS (Roda sempre para que elas sumam mesmo após transições)
+        // UPDATE DAS PARTÍCULAS
         for (int i = 0; i < MAX_PARTICULAS; i++)
         {
             if (particulas[i].ativa)
@@ -219,12 +206,29 @@ int main(void)
             }
         }
 
+        Rectangle source = {
+            frameAtual * larguraFrame,
+            0,
+            larguraFrame,
+            alturaFrame
+        };
+
+        Rectangle dest = {
+            jogador.x,
+            jogador.y,
+            40, // Largura final que a cabeça terá na tela
+            40  // Altura final que a cabeça terá na tela
+        };
+
+        // Define a origem do desenho no meio do frame para que a rotação e colisão fiquem perfeitas
+        Vector2 centroSprite = { 20, 20 };
+
         // =========================================
         // DRAW
         // =========================================
 
         BeginDrawing();
-        ClearBackground(BLACK); // Fundo Black realça o Pink e o Amarelo
+        ClearBackground(BLACK);
 
         if (estadoAtual == MENU)
         {
@@ -250,8 +254,15 @@ int main(void)
                 DrawCircleV(corpo[i], 12, PINK);
             }
 
-            // DESENHA A CABEÇA DA MINHOCA (Bolinha Pink maior)
-            DrawCircleV(jogador, 15, PINK);
+            
+            DrawTexturePro(
+                sprite,
+                source,
+                dest,
+                centroSprite,
+                0,
+                PINK 
+            );
 
             // DESENHA AS PARTÍCULAS DA EXPLOSÃO (Amarelas)
             for (int i = 0; i < MAX_PARTICULAS; i++)
@@ -274,12 +285,14 @@ int main(void)
 
             // Barra de Crescimento
             DrawRectangle(220, 40, 200, 20, BLACK);
-            DrawRectangle(220, 40, tamanhoMinhoca * 2, 20, PINK); // Preenchimento Pink
-            DrawRectangleLines(220, 40, 200, 20, YELLOW);         // Borda Amarela
+            DrawRectangle(220, 40, tamanhoMinhoca * 2, 20, PINK); 
+            DrawRectangleLines(220, 40, 200, 20, YELLOW);         
 
             DrawText(TextFormat("Velocidade: Nivel %d", nivelVelocidade), 470, 65, 20, YELLOW);
             DrawText(TextFormat("Tempo: %.1f s", tempo), 750, 65, 20, PINK);
             
+            // Info extra da Sprite na tela
+            DrawText(TextFormat("Frame Cabeça: %d", frameAtual), 470, 15, 16, YELLOW);
             DrawText("ESPACO = Aumentar Velocidade", 20, 565, 18, YELLOW);
         }
         else if (estadoAtual == GAME_OVER)
@@ -293,6 +306,8 @@ int main(void)
         EndDrawing();
     }
 
+    UnloadTexture(sprite);
     CloseWindow();
+    
     return 0;
 }
