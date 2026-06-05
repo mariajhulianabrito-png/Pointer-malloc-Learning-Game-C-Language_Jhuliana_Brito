@@ -1,169 +1,235 @@
 #include "raylib.h"
-#include "stdlib.h" 
 
-typedef enum GameState
-{
-    MENU,
-    GAME,
-    INSTRUCTIONS,
-    GAME_OVER
-} GameState;
+// =========================================
+// MAIN
+// =========================================
 
 int main(void)
 {
-    InitWindow(800, 450, "Jogo da Minhoca");
+    // Cria janela
+    InitWindow(1000, 600, "Cobrinha HUD - Pink & Amarelo");
 
+    // Define FPS
     SetTargetFPS(60);
 
-    GameState estadoAtual = MENU;
+    // =========================================
+    // JOGADOR (COBRINHA)
+    // =========================================
 
-    Vector2 jogador = { 400, 225 };
+    // Posição inicial
+    Vector2 jogador = { 480, 300 };
 
-    float velocidade = 3.0f;
+    // Velocidade base
+    float velocidade = 4.0f;
 
-    Vector2 corpo[100];      
-    int tamanhoMinhoca = 3;  
-    
-    
-    Vector2 comida = { 200, 200 };
-    // --------------------------------------
+    // =========================================
+    // HUD TEMÁTICA DA COBRINHA
+    // =========================================
 
-    // Loop principal
+    // Pontuação (Frutas comidas)
+    int score = 0;
+
+    // Tamanho atual da cobra
+    int tamanhoCobra = 10; 
+
+    // Nível de Velocidade
+    int nivelVelocidade = 1;
+
+    // Tempo de jogo
+    float tempo = 0;
+
+    // =========================================
+    // LOOP PRINCIPAL
+    // =========================================
+
     while (!WindowShouldClose())
     {
-        
+        // =========================================
+        // UPDATE
+        // =========================================
 
-        if (estadoAtual == MENU)
+        // Atualiza tempo
+        tempo += GetFrameTime();
+
+        // Movimento direita
+        if (IsKeyDown(KEY_RIGHT))
+            jogador.x += velocidade;
+
+        // Movimento esquerda
+        if (IsKeyDown(KEY_LEFT))
+            jogador.x -= velocidade;
+
+        // Movimento cima
+        if (IsKeyDown(KEY_UP))
+            jogador.y -= velocidade;
+
+        // Movimento baixo
+        if (IsKeyDown(KEY_DOWN))
+            jogador.y += velocidade;
+
+        // Simula comer fruta (Ganha pontos e cresce)
+        if (IsKeyPressed(KEY_P))
         {
-            if (IsKeyPressed(KEY_ENTER))
-            {
-        
-                jogador = (Vector2){ 400, 225 };
-                tamanhoMinhoca = 3;
-                for (int i = 0; i < tamanhoMinhoca; i++) corpo[i] = jogador;
-                estadoAtual = GAME;
-            }
+            score += 10;
+            tamanhoCobra += 5; 
 
-            if (IsKeyPressed(KEY_I))
-            {
-                estadoAtual = INSTRUCTIONS;
-            }
-
-            if (IsKeyPressed(KEY_ESCAPE))
-            {
-                break;
-            }
+            if (tamanhoCobra > 100)
+                tamanhoCobra = 100; 
         }
-        else if (estadoAtual == INSTRUCTIONS)
+
+        // Simula colisão/dano (Diminui o tamanho da cobra)
+        if (IsKeyPressed(KEY_H))
         {
-            if (IsKeyPressed(KEY_BACKSPACE))
-            {
-                estadoAtual = MENU;
-            }
+            tamanhoCobra -= 5;
+
+            if (tamanhoCobra < 0)
+                tamanhoCobra = 0;
         }
-        else if (estadoAtual == GAME)
+
+        // Simula alterar o nível de velocidade com ESPAÇO
+        if (IsKeyPressed(KEY_SPACE))
         {
-        
-            for (int i = tamanhoMinhoca - 1; i > 0; i--)
-            {
-                corpo[i] = corpo[i - 1];
-            }
-            corpo[0] = jogador; 
-            
-            if (IsKeyDown(KEY_RIGHT)) jogador.x += velocidade;
-            if (IsKeyDown(KEY_LEFT))  jogador.x -= velocidade;
-            if (IsKeyDown(KEY_UP))    jogador.y -= velocidade;
-            if (IsKeyDown(KEY_DOWN))  jogador.y += velocidade;
+            nivelVelocidade++;
+            velocidade += 0.5f;
 
-            if (CheckCollisionCircles(jogador, 12, comida, 8))
+            if (nivelVelocidade > 10) 
             {
-                if (tamanhoMinhoca < 100)
-                {
-                    tamanhoMinhoca++;
-                }
-                
-                comida.x = (float)(rand() % 760 + 20);
-                comida.y = (float)(rand() % 410 + 20);
-            }
-
-            for (int i = 10; i < tamanhoMinhoca; i++)
-            {
-                if (CheckCollisionCircles(jogador, 10, corpo[i], 10))
-                {
-                    estadoAtual = GAME_OVER;
-                }
-            }
-
-            if (IsKeyPressed(KEY_G))
-            {
-                estadoAtual = GAME_OVER;
-            }
-        }
-        else if (estadoAtual == GAME_OVER)
-        {
-            if (IsKeyPressed(KEY_R))
-            {
-                jogador = (Vector2){ 400, 225 };
-                tamanhoMinhoca = 3; // Reseta o tamanho
-                for (int i = 0; i < tamanhoMinhoca; i++) corpo[i] = jogador;
-                estadoAtual = GAME;
-            }
-
-            if (IsKeyPressed(KEY_M))
-            {
-                jogador = (Vector2){ 400, 225 };
-                estadoAtual = MENU;
+                nivelVelocidade = 1;
+                velocidade = 4.0f;
             }
         }
 
-        
+        // =========================================
+        // DRAW
+        // =========================================
+
         BeginDrawing();
 
-        ClearBackground(DARKGRAY);
+        // Fundo escuro para destacar o Pink e o Amarelo
+        ClearBackground(BLACK);
 
-        if (estadoAtual == MENU)
-        {
-            DrawText("Jogo da Minhoca", 240, 90, 32, PINK);
-            DrawText("Pressione ENTER para jogar", 250, 170, 22, YELLOW);
-            DrawText("Pressione I para instrucoes", 260, 210, 22, YELLOW);
-            DrawText("Pressione ESC para sair", 275, 250, 22, YELLOW);
-        }
-        else if (estadoAtual == INSTRUCTIONS)
-        {
-            DrawText("INSTRUCOES", 300, 80, 32, PINK);
-            DrawText("Use as setas para mover a minhoca.", 180, 160, 22, PINK);
-            DrawText("Coma as bolinhas vermelhas para crescer!", 160, 200, 22, GREEN);
-            DrawText("Cuidado para nao morder seu proprio corpo.", 150, 240, 22, PINK);
-            DrawText("Pressione BACKSPACE para voltar.", 180, 300, 22, YELLOW);
-        }
-        else if (estadoAtual == GAME)
-        {
-            DrawText("JOGO RODANDO", 20, 20, 24, PINK);
-            DrawText("Use as setas para mover", 20, 55, 18, PINK);
-            
-            
-            DrawText(TextFormat("Tamanho: %d", tamanhoMinhoca), 650, 20, 20, PINK);
+        // =========================================
+        // MUNDO DO JOGO
+        // =========================================
 
-            DrawCircleV(comida, 8, RED);
+        // Desenha cabeça da cobrinha em PINK
+        DrawRectangleV(
+            jogador,
+            (Vector2){40, 40},
+            PINK
+        );
 
-            for (int i = 0; i < tamanhoMinhoca; i++)
-            {
-                DrawCircleV(corpo[i], 10, LIME);
-            }
+        // =========================================
+        // HUD
+        // =========================================
 
-            DrawCircleV(jogador, 12, PINK);
-        }
-        else if (estadoAtual == GAME_OVER)
-        {
-            DrawText("GAME OVER", 270, 120, 48, PINK);
-            DrawText(TextFormat("Sua minhoca cresceu ate o tamanho: %d", tamanhoMinhoca), 200, 180, 20, WHITE);
-            DrawText("Pressione R para reiniciar", 260, 240, 22, YELLOW);
-            DrawText("Pressione M para voltar ao menu", 235, 280, 22, PINK);
-        }
+        // Fundo da HUD (Cinza bem escuro para dar contraste)
+        DrawRectangle(
+            0,
+            0,
+            1000,
+            115,
+            DARKGRAY
+        );
+
+        // Linha separadora da HUD em PINK
+        DrawLine(
+            0,
+            115,
+            1000,
+            115,
+            PINK
+        );
+
+        // Título do Jogo em AMARELO
+        DrawText(
+            "SNAKE GAME ARCADE",
+            20,
+            15,
+            28,
+            YELLOW
+        );
+
+        // Score (Frutas) em AMARELO
+        DrawText(
+            TextFormat("Frutas: %d", score / 10), 
+            20,
+            65,
+            20,
+            YELLOW
+        );
+
+        // Texto do Comprimento/Tamanho em PINK
+        DrawText(
+            TextFormat("Tamanho: %d", tamanhoCobra),
+            220,
+            65,
+            20,
+            PINK
+        );
+
+        // =========================================
+        // BARRA DE COMPRIMENTO (CRESCIMENTO)
+        // =========================================
+
+        // Fundo da barra (Preto para destacar o preenchimento)
+        DrawRectangle(
+            220,
+            40,
+            200,
+            20,
+            BLACK
+        );
+
+        // Progresso do crescimento preenche em PINK
+        DrawRectangle(
+            220,
+            40,
+            tamanhoCobra * 2,
+            20,
+            PINK
+        );
+
+        // Borda da barra em AMARELO
+        DrawRectangleLines(
+            220,
+            40,
+            200,
+            20,
+            YELLOW
+        );
+
+        // Velocidade atual em AMARELO
+        DrawText(
+            TextFormat("Velocidade: Nivel %d", nivelVelocidade),
+            470,
+            65,
+            20,
+            YELLOW
+        );
+
+        // Tempo em PINK
+        DrawText(
+            TextFormat("Tempo: %.1f s", tempo),
+            750,
+            65,
+            20,
+            PINK
+        );
+
+        // Texto explicativo na parte inferior da tela em AMARELO
+        DrawText(
+            "P = Comer Fruta | H = Bater no Corpo | ESPACO = Aumentar Marcha/Velocidade",
+            20,
+            560,
+            18,
+            YELLOW
+        );
 
         EndDrawing();
     }
 
+    // Fecha janela
     CloseWindow();
 
     return 0;
