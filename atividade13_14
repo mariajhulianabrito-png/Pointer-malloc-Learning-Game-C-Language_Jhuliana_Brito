@@ -1,4 +1,63 @@
+// =========================================
+// IMPORTA BIBLIOTECAS
+// =========================================
+
 #include "raylib.h"
+#include "stdlib.h" // Usado para a função rand() da comida
+
+// =========================================
+// CONSTANTES
+// =========================================
+
+#define MAX_PARTICULAS 100
+
+// =========================================
+// STRUCTS
+// =========================================
+
+typedef enum GameState
+{
+    MENU,
+    GAME,
+    INSTRUCTIONS,
+    GAME_OVER
+} GameState;
+
+typedef struct Particula
+{
+    Vector2 posicao;
+    Vector2 velocidade;
+    float tamanho;
+    float tempoVida;
+    bool ativa;
+    Color cor;
+} Particula;
+
+// =========================================
+// FUNÇÃO PARA CRIAR EXPLOSÃO
+// =========================================
+
+void CriarExplosao(Particula particulas[], Vector2 origem)
+{
+    for (int i = 0; i < MAX_PARTICULAS; i++)
+    {
+        if (!particulas[i].ativa)
+        {
+            particulas[i].ativa = true;
+            particulas[i].posicao = origem;
+
+            // Velocidades aleatórias para dispersar em todas as direções
+            particulas[i].velocidade.x = GetRandomValue(-200, 200) / 100.0f;
+            particulas[i].velocidade.y = GetRandomValue(-200, 200) / 100.0f;
+
+            particulas[i].tamanho = GetRandomValue(3, 7);
+            particulas[i].tempoVida = 0.8f; // Duração do brilho das partículas
+
+            // Seguindo sua paleta: partículas brilham em AMARELO ao explodir
+            particulas[i].cor = YELLOW; 
+        }
+    }
+}
 
 // =========================================
 // MAIN
@@ -6,36 +65,31 @@
 
 int main(void)
 {
-    // Cria janela
-    InitWindow(1000, 600, "Cobrinha HUD - Pink & Amarelo");
+    // Cria janela (Mantendo a proporção da HUD de 1000x600)
+    InitWindow(1000, 600, "Jogo da Minhoca - Particulas Pink e Amarelo");
 
-    // Define FPS
     SetTargetFPS(60);
 
-    // =========================================
-    // JOGADOR (COBRINHA)
-    // =========================================
+    // Sistema de partículas
+    Particula particulas[MAX_PARTICULAS] = { 0 };
 
-    // Posição inicial
-    Vector2 jogador = { 480, 300 };
+    // Estado inicial
+    GameState estadoAtual = MENU;
 
-    // Velocidade base
+    // Jogador (Cabeça da Minhoca)
+    Vector2 jogador = { 500, 350 };
     float velocidade = 4.0f;
 
-    // =========================================
-    // HUD TEMÁTICA DA COBRINHA
-    // =========================================
+    // Corpo da Minhoca
+    Vector2 corpo[100];
+    int tamanhoMinhoca = 3;
 
-    // Pontuação (Frutas comidas)
+    // Comida/Fruta
+    Vector2 comida = { 300, 400 };
+
+    // Variáveis da HUD
     int score = 0;
-
-    // Tamanho atual da cobra
-    int tamanhoCobra = 10; 
-
-    // Nível de Velocidade
     int nivelVelocidade = 1;
-
-    // Tempo de jogo
     float tempo = 0;
 
     // =========================================
@@ -44,58 +98,124 @@ int main(void)
 
     while (!WindowShouldClose())
     {
+        // Delta time necessário para atualizar as partículas uniformemente
+        float delta = GetFrameTime();
+
         // =========================================
         // UPDATE
         // =========================================
 
-        // Atualiza tempo
-        tempo += GetFrameTime();
-
-        // Movimento direita
-        if (IsKeyDown(KEY_RIGHT))
-            jogador.x += velocidade;
-
-        // Movimento esquerda
-        if (IsKeyDown(KEY_LEFT))
-            jogador.x -= velocidade;
-
-        // Movimento cima
-        if (IsKeyDown(KEY_UP))
-            jogador.y -= velocidade;
-
-        // Movimento baixo
-        if (IsKeyDown(KEY_DOWN))
-            jogador.y += velocidade;
-
-        // Simula comer fruta (Ganha pontos e cresce)
-        if (IsKeyPressed(KEY_P))
+        if (estadoAtual == MENU)
         {
-            score += 10;
-            tamanhoCobra += 5; 
-
-            if (tamanhoCobra > 100)
-                tamanhoCobra = 100; 
-        }
-
-        // Simula colisão/dano (Diminui o tamanho da cobra)
-        if (IsKeyPressed(KEY_H))
-        {
-            tamanhoCobra -= 5;
-
-            if (tamanhoCobra < 0)
-                tamanhoCobra = 0;
-        }
-
-        // Simula alterar o nível de velocidade com ESPAÇO
-        if (IsKeyPressed(KEY_SPACE))
-        {
-            nivelVelocidade++;
-            velocidade += 0.5f;
-
-            if (nivelVelocidade > 10) 
+            if (IsKeyPressed(KEY_ENTER))
             {
+                // Inicializa/Reseta jogo
+                jogador = (Vector2){ 500, 350 };
+                tamanhoMinhoca = 3;
+                for (int i = 0; i < tamanhoMinhoca; i++) corpo[i] = jogador;
+                score = 0;
+                tempo = 0;
                 nivelVelocidade = 1;
                 velocidade = 4.0f;
+                
+                // Desativa partículas antigas
+                for (int i = 0; i < MAX_PARTICULAS; i++) particulas[i].ativa = false;
+
+                estadoAtual = GAME;
+            }
+
+            if (IsKeyPressed(KEY_I))     estadoAtual = INSTRUCTIONS;
+            if (IsKeyPressed(KEY_ESCAPE)) break;
+        }
+        else if (estadoAtual == INSTRUCTIONS)
+        {
+            if (IsKeyPressed(KEY_BACKSPACE)) estadoAtual = MENU;
+        }
+        else if (estadoAtual == GAME)
+        {
+            tempo += delta;
+
+            // Atualiza histórico do corpo
+            for (int i = tamanhoMinhoca - 1; i > 0; i--)
+            {
+                corpo[i] = corpo[i - 1];
+            }
+            corpo[0] = jogador;
+
+            // Movimentação (Restringida para não subir em cima da HUD na colisão visual)
+            if (IsKeyDown(KEY_RIGHT)) jogador.x += velocidade;
+            if (IsKeyDown(KEY_LEFT))  jogador.x -= velocidade;
+            if (IsKeyDown(KEY_UP))    jogador.y -= velocidade;
+            if (IsKeyDown(KEY_DOWN))  jogador.y += velocidade;
+
+            // Evita que a cabeça entre na HUD superior (Y < 115)
+            if (jogador.y < 135) jogador.y = 135; 
+
+            // COLISÃO: Comeu a bolinha amarela?
+            if (CheckCollisionCircles(jogador, 15, comida, 10))
+            {
+                // GERA EXPLOSÃO DE PARTÍCULAS NA POSIÇÃO DA COMIDA!
+                CriarExplosao(particulas, comida);
+
+                score += 10;
+                if (tamanhoMinhoca < 100) tamanhoMinhoca += 2;
+
+                // Nova posição para a comida (dentro do limite da tela de jogo)
+                comida.x = (float)(GetRandomValue(40, 960));
+                comida.y = (float)(GetRandomValue(150, 540));
+            }
+
+            // Mudar velocidade manualmente (Simulador da HUD anterior)
+            if (IsKeyPressed(KEY_SPACE))
+            {
+                nivelVelocidade++;
+                velocidade += 0.5f;
+                if (nivelVelocidade > 10)
+                {
+                    nivelVelocidade = 1;
+                    velocidade = 4.0f;
+                }
+            }
+
+            // Colisão com o próprio corpo (Game Over se morder a cauda)
+            for (int i = 10; i < tamanhoMinhoca; i++)
+            {
+                if (CheckCollisionCircles(jogador, 12, corpo[i], 12))
+                {
+                    estadoAtual = GAME_OVER;
+                }
+            }
+
+            if (IsKeyPressed(KEY_G)) estadoAtual = GAME_OVER;
+        }
+        else if (estadoAtual == GAME_OVER)
+        {
+            if (IsKeyPressed(KEY_R))
+            {
+                jogador = (Vector2){ 500, 350 };
+                tamanhoMinhoca = 3;
+                for (int i = 0; i < tamanhoMinhoca; i++) corpo[i] = jogador;
+                score = 0;
+                tempo = 0;
+                estadoAtual = GAME;
+            }
+            if (IsKeyPressed(KEY_M)) estadoAtual = MENU;
+        }
+
+        // ATUALIZAÇÃO DAS PARTÍCULAS (Roda sempre para que elas sumam mesmo após transições)
+        for (int i = 0; i < MAX_PARTICULAS; i++)
+        {
+            if (particulas[i].ativa)
+            {
+                particulas[i].posicao.x += particulas[i].velocidade.x * 100 * delta;
+                particulas[i].posicao.y += particulas[i].velocidade.y * 100 * delta;
+                particulas[i].tempoVida -= delta;
+                particulas[i].tamanho -= delta * 4;
+
+                if (particulas[i].tempoVida <= 0 || particulas[i].tamanho <= 0)
+                {
+                    particulas[i].ativa = false;
+                }
             }
         }
 
@@ -104,133 +224,75 @@ int main(void)
         // =========================================
 
         BeginDrawing();
+        ClearBackground(BLACK); // Fundo Black realça o Pink e o Amarelo
 
-        // Fundo escuro para destacar o Pink e o Amarelo
-        ClearBackground(BLACK);
+        if (estadoAtual == MENU)
+        {
+            DrawText("MINHOCA ARCADE", 340, 180, 36, PINK);
+            DrawText("Pressione ENTER para iniciar", 320, 280, 24, YELLOW);
+            DrawText("Pressione I para Instrucoes", 335, 330, 24, YELLOW);
+        }
+        else if (estadoAtual == INSTRUCTIONS)
+        {
+            DrawText("INSTRUCOES", 400, 150, 36, PINK);
+            DrawText("Use as setas para mover a minhoca.", 280, 250, 22, YELLOW);
+            DrawText("Pegue as frutas amarelas para crescer e explodir particulas!", 170, 300, 22, PINK);
+            DrawText("Pressione BACKSPACE para voltar.", 310, 400, 22, YELLOW);
+        }
+        else if (estadoAtual == GAME)
+        {
+            // DESENHA COMIDA (Bolinha Amarela)
+            DrawCircleV(comida, 10, YELLOW);
 
-        // =========================================
-        // MUNDO DO JOGO
-        // =========================================
+            // DESENHA O CORPO DA MINHOCA (Bolinhas Pink menores)
+            for (int i = 0; i < tamanhoMinhoca; i++)
+            {
+                DrawCircleV(corpo[i], 12, PINK);
+            }
 
-        // Desenha cabeça da cobrinha em PINK
-        DrawRectangleV(
-            jogador,
-            (Vector2){40, 40},
-            PINK
-        );
+            // DESENHA A CABEÇA DA MINHOCA (Bolinha Pink maior)
+            DrawCircleV(jogador, 15, PINK);
 
-        // =========================================
-        // HUD
-        // =========================================
+            // DESENHA AS PARTÍCULAS DA EXPLOSÃO (Amarelas)
+            for (int i = 0; i < MAX_PARTICULAS; i++)
+            {
+                if (particulas[i].ativa)
+                {
+                    DrawCircleV(particulas[i].posicao, particulas[i].tamanho, particulas[i].cor);
+                }
+            }
 
-        // Fundo da HUD (Cinza bem escuro para dar contraste)
-        DrawRectangle(
-            0,
-            0,
-            1000,
-            115,
-            DARKGRAY
-        );
+            // =========================================
+            // HUD DESIGN (Tons de Pink e Amarelo)
+            // =========================================
+            DrawRectangle(0, 0, 1000, 115, DARKGRAY);
+            DrawLine(0, 115, 1000, 115, PINK);
 
-        // Linha separadora da HUD em PINK
-        DrawLine(
-            0,
-            115,
-            1000,
-            115,
-            PINK
-        );
+            DrawText("SNAKE GAME", 20, 15, 28, YELLOW);
+            DrawText(TextFormat("Frutas: %d", score / 10), 20, 65, 20, YELLOW);
+            DrawText(TextFormat("Tamanho: %d", tamanhoMinhoca), 220, 65, 20, PINK);
 
-        // Título do Jogo em AMARELO
-        DrawText(
-            "SNAKE GAME ARCADE",
-            20,
-            15,
-            28,
-            YELLOW
-        );
+            // Barra de Crescimento
+            DrawRectangle(220, 40, 200, 20, BLACK);
+            DrawRectangle(220, 40, tamanhoMinhoca * 2, 20, PINK); // Preenchimento Pink
+            DrawRectangleLines(220, 40, 200, 20, YELLOW);         // Borda Amarela
 
-        // Score (Frutas) em AMARELO
-        DrawText(
-            TextFormat("Frutas: %d", score / 10), 
-            20,
-            65,
-            20,
-            YELLOW
-        );
-
-        // Texto do Comprimento/Tamanho em PINK
-        DrawText(
-            TextFormat("Tamanho: %d", tamanhoCobra),
-            220,
-            65,
-            20,
-            PINK
-        );
-
-        // =========================================
-        // BARRA DE COMPRIMENTO (CRESCIMENTO)
-        // =========================================
-
-        // Fundo da barra (Preto para destacar o preenchimento)
-        DrawRectangle(
-            220,
-            40,
-            200,
-            20,
-            BLACK
-        );
-
-        // Progresso do crescimento preenche em PINK
-        DrawRectangle(
-            220,
-            40,
-            tamanhoCobra * 2,
-            20,
-            PINK
-        );
-
-        // Borda da barra em AMARELO
-        DrawRectangleLines(
-            220,
-            40,
-            200,
-            20,
-            YELLOW
-        );
-
-        // Velocidade atual em AMARELO
-        DrawText(
-            TextFormat("Velocidade: Nivel %d", nivelVelocidade),
-            470,
-            65,
-            20,
-            YELLOW
-        );
-
-        // Tempo em PINK
-        DrawText(
-            TextFormat("Tempo: %.1f s", tempo),
-            750,
-            65,
-            20,
-            PINK
-        );
-
-        // Texto explicativo na parte inferior da tela em AMARELO
-        DrawText(
-            "P = Comer Fruta | H = Bater no Corpo | ESPACO = Aumentar Marcha/Velocidade",
-            20,
-            560,
-            18,
-            YELLOW
-        );
+            DrawText(TextFormat("Velocidade: Nivel %d", nivelVelocidade), 470, 65, 20, YELLOW);
+            DrawText(TextFormat("Tempo: %.1f s", tempo), 750, 65, 20, PINK);
+            
+            DrawText("ESPACO = Aumentar Velocidade", 20, 565, 18, YELLOW);
+        }
+        else if (estadoAtual == GAME_OVER)
+        {
+            DrawText("GAME OVER", 370, 180, 48, PINK);
+            DrawText(TextFormat("Pontuacao final: %d pontos", score), 360, 260, 22, YELLOW);
+            DrawText("Pressione R para Reiniciar", 345, 340, 22, YELLOW);
+            DrawText("Pressione M para ir ao Menu", 340, 380, 22, PINK);
+        }
 
         EndDrawing();
     }
 
-    // Fecha janela
     CloseWindow();
-
     return 0;
 }
