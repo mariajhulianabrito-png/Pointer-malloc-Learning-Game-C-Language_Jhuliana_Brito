@@ -1,46 +1,58 @@
 #include "raylib.h"
+#include "raymath.h" // Inclui funções de vetor como Vector2Distance
 
-typedef enum { MENU, GAME, INSTRUCTIONS, GAME_OVER } GameState;
+typedef enum { MENU, GAME, GAME_OVER } GameState;
+typedef enum { PATROL, CHASE } EnemyState;
+
+typedef struct Enemy {
+    Vector2 posicao;
+    float velocidade;
+    int direcao;
+    EnemyState estado;
+} Enemy;
 
 int main(void)
 {
     const int numPlataformas = 7;
-    InitWindow(1280, 768, "Minhoca - Movimento Livre 2D");
+    InitWindow(1280, 768, "Minhoca 2D - Inteligencia Artificial");
     SetTargetFPS(60);
 
-    // Recursos e Estados
+    // Recursos e Estados do Jogo
     Texture2D sprite = LoadTexture("player.png");
     int frameAtual = 0;
     float tempoAnimacao = 0;
     GameState estadoAtual = MENU;
 
-    // Movimentação e Câmera
-    Vector2 jogador = { 200, 300 };
+    // Configurações do Jogador (Minhoca)
+    Vector2 jogador = { 200, 350 };
     Vector2 corpo[100] = { 0 };
     int tamanhoMinhoca = 3;
-    float velX = 300.0f; // Velocidade de movimento em todas as direções
+    float velJogador = 300.0f;
+
+    // Configurações do Inimigo com IA
+    Enemy inimigo = { { 800, 384 }, 150.0f, 1, PATROL };
 
     Camera2D camera = { (Vector2){ 640, 384 }, jogador, 0.0f, 1.0f };
-    Vector2 comida = { 512, 128 };
+    Vector2 comida = { 512, 200 };
     int score = 0;
     float tempo = 0;
 
-    // Definição das paredes e obstáculos do mapa
+    // Definição dos blocos do mapa
     Rectangle plataformas[] = {
         { 0, 704, 1280, 64 },    // Chão
         { 0, 0, 1280, 64 },      // Teto
         { 0, 0, 64, 768 },        // Parede esquerda
         { 1216, 0, 64, 768 },     // Parede direita
         { 448, 192, 256, 64 },    // Obstáculo 1
-        { 192, 384, 192, 64 },    // Obstáculo 2
-        { 768, 384, 256, 64 }     // Obstáculo 3
+        { 192, 448, 192, 64 },    // Obstáculo 2
+        { 768, 448, 256, 64 }     // Obstáculo 3
     };
 
     while (!WindowShouldClose())
     {
         float delta = GetFrameTime();
 
-        // Animação da Sprite
+        // Animação da cabeça da minhoca
         tempoAnimacao += delta;
         if (tempoAnimacao >= 0.15f) {
             frameAtual = (frameAtual + 1) % 4;
@@ -52,48 +64,77 @@ int main(void)
             tempo += delta;
             Vector2 antigaPos = jogador;
 
-            // CONTROLES REATIVADOS: Agora move livremente para todas as direções
-            if (IsKeyDown(KEY_RIGHT)) jogador.x += velX * delta;
-            if (IsKeyDown(KEY_LEFT))  jogador.x -= velX * delta;
-            if (IsKeyDown(KEY_UP))    jogador.y -= velX * delta; // Cima livre!
-            if (IsKeyDown(KEY_DOWN))  jogador.y += velX * delta; // Baixo livre!
+            // Movimentação livre em 4 direções
+            if (IsKeyDown(KEY_RIGHT)) jogador.x += velJogador * delta;
+            if (IsKeyDown(KEY_LEFT))  jogador.x -= velJogador * delta;
+            if (IsKeyDown(KEY_UP))    jogador.y -= velJogador * delta;
+            if (IsKeyDown(KEY_DOWN))  jogador.y += velJogador * delta;
 
-            // Resolução de Colisão com as Paredes (Empurra para fora do bloco)
+            // Colisão da Minhoca com as Paredes do Mapa
             Rectangle jogadorRect = { jogador.x - 22, jogador.y - 22, 44, 44 };
-            for (int i = 0; i < numPlataformas; i++)
-            {
-                if (CheckCollisionRecs(jogadorRect, plataformas[i]))
-                {
-                    // Se colidir, o jogador retorna para a última posição válida (antes de bater)
+            for (int i = 0; i < numPlataformas; i++) {
+                if (CheckCollisionRecs(jogadorRect, plataformas[i])) {
                     jogador = antigaPos;
                 }
             }
 
-            // Atualiza o rastro do corpo apenas se a minhoca realmente andou
+            // Atualiza o rastro do corpo da minhoca
             if (jogador.x != antigaPos.x || jogador.y != antigaPos.y) {
                 for (int i = tamanhoMinhoca - 1; i > 0; i--) corpo[i] = corpo[i - 1];
                 corpo[0] = antigaPos;
             }
 
-            // Câmera foca na cabeça da minhoca no centro
+            // =========================================
+            // LÓGICA DE INTELIGÊNCIA ARTIFICIAL (IA)
+            // =========================================
+            float distancia = Vector2Distance(jogador, inimigo.posicao);
+
+            // Transição de Estado por Proximidade (Visão do Inimigo)
+            if (distancia < 250.0f) {
+                inimigo.estado = CHASE;
+            } else {
+                inimigo.estado = PATROL;
+            }
+
+            // Execução dos Estados da FSM
+            if (inimigo.estado == PATROL) {
+                // Anda de um lado para o outro na horizontal
+                inimigo.posicao.x += inimigo.velocidade * inimigo.direcao * delta;
+                if (inimigo.posicao.x > 1000) inimigo.direcao = -1;
+                if (inimigo.posicao.x < 700)  inimigo.direcao = 1;
+            } 
+            else if (inimigo.estado == CHASE) {
+                // Persegue o jogador calculando o vetor de direção normalizado
+                Vector2 dirVetor = Vector2Normalize(Vector2Subtract(jogador, inimigo.posicao));
+                inimigo.posicao.x += dirVetor.x * (inimigo.velocidade * 1.4f) * delta;
+                inimigo.posicao.y += dirVetor.y * (inimigo.velocidade * 1.4f) * delta;
+            }
+
+            // Colisão do Inimigo contra a cabeça do Jogador (Dano)
+            if (CheckCollisionCircles(jogador, 20, inimigo.posicao, 22)) {
+                estadoAtual = GAME_OVER;
+            }
+
             camera.target = jogador;
 
-            // Coleta da Fruta Amarela
+            // Coleta de Fruta Amarela
             if (CheckCollisionCircles(jogador, 16, comida, 12)) {
                 score += 10;
                 if (tamanhoMinhoca < 100) tamanhoMinhoca += 3;
                 comida = (Vector2){ (float)GetRandomValue(100, 1100), (float)GetRandomValue(100, 600) };
             }
 
-            // Game over se bater no próprio corpo
+            // Auto-colisão com o próprio rastro
             for (int i = 15; i < tamanhoMinhoca; i++) {
                 if (CheckCollisionCircles(jogador, 10, corpo[i], 10)) estadoAtual = GAME_OVER;
             }
         }
         else if (IsKeyPressed(KEY_ENTER) && (estadoAtual == MENU || estadoAtual == GAME_OVER))
         {
-            // Inicializa ou reinicia variáveis ao apertar ENTER
-            jogador = (Vector2){ 200, 300 };
+            // Reinicialização segura das entidades
+            jogador = (Vector2){ 200, 350 };
+            inimigo.posicao = (Vector2){ 800, 384 };
+            inimigo.estado = PATROL;
             tamanhoMinhoca = 3;
             score = 0; tempo = 0;
             estadoAtual = GAME;
@@ -108,33 +149,40 @@ int main(void)
         if (estadoAtual == GAME)
         {
             BeginMode2D(camera);
-                // Desenha os obstáculos em Rosa Pink
+                // Desenha os obstáculos do mapa em Rosa Pink
                 for (int i = 0; i < numPlataformas; i++) {
                     DrawRectangleRec(plataformas[i], PINK);
                     DrawRectangleLinesEx(plataformas[i], 2, MAROON);
                 }
                 
-                // Desenha a fruta Amarela
-                DrawCircleV(comida, 12, YELLOW); 
+                DrawCircleV(comida, 12, YELLOW); // Fruta
                 
-                // Desenha o corpo em Rosa Pink
-                for (int i = 0; i < tamanhoMinhoca; i++) DrawCircleV(corpo[i], 14, PINK); 
+                for (int i = 0; i < tamanhoMinhoca; i++) DrawCircleV(corpo[i], 14, PINK); // Cauda
                 
-                // Desenha a cabeça usando sua Sprite Sheet animada
+                // Cabeça da Minhoca (Sprite Sheet)
                 DrawTexturePro(sprite, (Rectangle){ frameAtual * (sprite.width / 4), 0, sprite.width / 4, sprite.height },
                                (Rectangle){ jogador.x, jogador.y, 44, 44 }, (Vector2){ 22, 22 }, 0, PINK);
+
+                // DESENHA INIMIGO (Amarelo em Alerta / Vermelho Perseguindo)
+                Color corInimigo = (inimigo.estado == PATROL) ? YELLOW : RED;
+                DrawCircleV(inimigo.posicao, 22, corInimigo);
+                DrawCircleLines(inimigo.posicao.x, inimigo.posicao.y, 22, WHITE);
+
+                // Linha de mira laser quando está caçando você
+                if (inimigo.estado == CHASE) {
+                    DrawLineV(inimigo.posicao, jogador, ColorAlpha(RED, 0.6f));
+                }
             EndMode2D();
 
-            // HUD Estática (Fixa na tela)
+            // HUD Superior Fixa
             DrawRectangle(0, 0, 1280, 80, ColorAlpha(DARKGRAY, 0.8f));
-            DrawText(TextFormat("PONTOS: %d  |  CORPO: %d  |  TEMPO: %.1f s", score, tamanhoMinhoca, tempo), 30, 25, 24, YELLOW);
+            DrawText(TextFormat("PONTOS: %d  |  ALERTA IA: %s", score, (inimigo.estado == CHASE) ? "CHASE (PERIGO)" : "PATROL"), 30, 25, 24, YELLOW);
         }
         else 
         {
-            // Telas de Menu / Game Over dinâmicas
-            char* txtPrincipal = (estadoAtual == MENU) ? "MINHOCA ARCADE 2D" : "GAME OVER";
-            char* txtSecundario = (estadoAtual == MENU) ? "Use as SETAS para se mover | ENTER para iniciar" : "Pressione ENTER para reiniciar";
-            DrawText(txtPrincipal, 640 - MeasureText(txtPrincipal, 36)/2, 300, 36, PINK);
+            char* txtPrincipal = (estadoAtual == MENU) ? "MINHOCA INTELIGENCIA ARTIFICIAL" : "GAME OVER";
+            char* txtSecundario = (estadoAtual == MENU) ? "Pressione ENTER para iniciar a evasao" : "O inimigo te pegou! Pressione ENTER para reiniciar";
+            DrawText(txtPrincipal, 640 - MeasureText(txtPrincipal, 32)/2, 300, 32, PINK);
             DrawText(txtSecundario, 640 - MeasureText(txtSecundario, 20)/2, 400, 20, YELLOW);
         }
 
