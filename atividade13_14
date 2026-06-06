@@ -1,388 +1,147 @@
-// =========================================
-// IMPORTA BIBLIOTECAS
-// =========================================
-
 #include "raylib.h"
-#include "stdlib.h" // Usado para rand()
 
-// =========================================
-// CONSTANTES DO TILEMAP
-// =========================================
-
-#define MAP_WIDTH 20
-#define MAP_HEIGHT 12
-#define TILE_SIZE 64
-#define MAX_PARTICULAS 100
-
-// =========================================
-// STRUCTS
-// =========================================
-
-typedef enum GameState
-{
-    MENU,
-    GAME,
-    INSTRUCTIONS,
-    GAME_OVER
-} GameState;
-
-typedef struct Particula
-{
-    Vector2 posicao;
-    Vector2 velocidade;
-    float tamanho;
-    float tempoVida;
-    bool ativa;
-    Color cor;
-} Particula;
-
-// =========================================
-// FUNÇÃO PARA CRIAR EXPLOSÃO
-// =========================================
-
-void CriarExplosao(Particula particulas[], Vector2 origem)
-{
-    for (int i = 0; i < MAX_PARTICULAS; i++)
-    {
-        if (!particulas[i].ativa)
-        {
-            particulas[i].ativa = true;
-            particulas[i].posicao = origem;
-            particulas[i].velocidade.x = GetRandomValue(-200, 200) / 100.0f;
-            particulas[i].velocidade.y = GetRandomValue(-200, 200) / 100.0f;
-            particulas[i].tamanho = GetRandomValue(3, 7);
-            particulas[i].tempoVida = 0.8f;
-            particulas[i].cor = YELLOW; // Brilho Amarelo
-        }
-    }
-}
-
-// =========================================
-// MAIN
-// =========================================
+typedef enum { MENU, GAME, INSTRUCTIONS, GAME_OVER } GameState;
 
 int main(void)
 {
-    // Define dimensões dinamicamente com base no tamanho do Tilemap (1280x768)
-    int larguraJanela = MAP_WIDTH * TILE_SIZE;
-    int alturaJanela = MAP_HEIGHT * TILE_SIZE;
-    InitWindow(larguraJanela, alturaJanela, "Jogo da Minhoca - Tilemap Arcade");
-
+    const int numPlataformas = 7;
+    InitWindow(1280, 768, "Minhoca - Movimento Livre 2D");
     SetTargetFPS(60);
 
-    // =========================================
-    // MATRIZ DO MAPA (0:Vazio, 1:Parede, 2:Obstáculo Escuro, 3:Detalhe)
-    // =========================================
-    int mapa[MAP_HEIGHT][MAP_WIDTH] =
-    {
-        {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-        {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-        {1,0,2,2,0,0,0,3,3,0,0,0,0,0,2,2,0,0,0,1},
-        {1,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,1},
-        {1,0,0,0,0,2,2,2,2,2,0,0,0,0,0,0,0,0,0,1},
-        {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-        {1,0,0,3,3,0,0,0,0,0,0,0,2,2,2,0,0,0,0,1},
-        {1,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-        {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-        {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-        {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-        {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
-    };
-
-    // =========================================
-    // CARREGA RECURSOS E CONFIGURAÇÕES
-    // =========================================
+    // Recursos e Estados
     Texture2D sprite = LoadTexture("player.png");
-    int frames = 4;
     int frameAtual = 0;
-    int larguraFrame = sprite.width / frames;
-    int alturaFrame = sprite.height;
     float tempoAnimacao = 0;
-    float velocidadAnimacao = 0.15f;
-
-    Particula particulas[MAX_PARTICULAS] = { 0 };
     GameState estadoAtual = MENU;
 
-    // Jogador e Câmera
+    // Movimentação e Câmera
     Vector2 jogador = { 200, 300 };
-    float velocidadeBase = 4.0f;
-
-    Camera2D camera = { 0 };
-    camera.offset = (Vector2){ larguraJanela / 2.0f, alturaJanela / 2.0f };
-    camera.target = jogador;
-    camera.rotation = 0.0f;
-    camera.zoom = 1.0f;
-
-    // Segmentos da Cobra
-    Vector2 corpo[100];
+    Vector2 corpo[100] = { 0 };
     int tamanhoMinhoca = 3;
+    float velX = 300.0f; // Velocidade de movimento em todas as direções
 
-    // Comida iniciada em local aberto seguro (Coluna 10, Linha 8)
-    Vector2 comida = { 10 * TILE_SIZE + 32, 8 * TILE_SIZE + 32 };
-
+    Camera2D camera = { (Vector2){ 640, 384 }, jogador, 0.0f, 1.0f };
+    Vector2 comida = { 512, 128 };
     int score = 0;
-    int nivelVelocidade = 1;
     float tempo = 0;
 
-    // =========================================
-    // LOOP PRINCIPAL
-    // =========================================
+    // Definição das paredes e obstáculos do mapa
+    Rectangle plataformas[] = {
+        { 0, 704, 1280, 64 },    // Chão
+        { 0, 0, 1280, 64 },      // Teto
+        { 0, 0, 64, 768 },        // Parede esquerda
+        { 1216, 0, 64, 768 },     // Parede direita
+        { 448, 192, 256, 64 },    // Obstáculo 1
+        { 192, 384, 192, 64 },    // Obstáculo 2
+        { 768, 384, 256, 64 }     // Obstáculo 3
+    };
 
     while (!WindowShouldClose())
     {
         float delta = GetFrameTime();
 
-        // Update da animação dos frames
+        // Animação da Sprite
         tempoAnimacao += delta;
-        if (tempoAnimacao >= velocidadAnimacao)
-        {
-            frameAtual++;
-            if (frameAtual >= frames) frameAtual = 0;
+        if (tempoAnimacao >= 0.15f) {
+            frameAtual = (frameAtual + 1) % 4;
             tempoAnimacao = 0;
         }
 
-        // =========================================
-        // UPDATE DE LOGICA POR ESTADO
-        // =========================================
-        if (estadoAtual == MENU)
-        {
-            if (IsKeyPressed(KEY_ENTER))
-            {
-                jogador = (Vector2){ 200, 300 };
-                tamanhoMinhoca = 3;
-                for (int i = 0; i < tamanhoMinhoca; i++) corpo[i] = jogador;
-                score = 0;
-                tempo = 0;
-                nivelVelocidade = 1;
-                velocidadeBase = 4.0f;
-                camera.zoom = 1.0f;
-                camera.rotation = 0.0f;
-                for (int i = 0; i < MAX_PARTICULAS; i++) particulas[i].ativa = false;
-                estadoAtual = GAME;
-            }
-            if (IsKeyPressed(KEY_I)) estadoAtual = INSTRUCTIONS;
-        }
-        else if (estadoAtual == INSTRUCTIONS)
-        {
-            if (IsKeyPressed(KEY_BACKSPACE)) estadoAtual = MENU;
-        }
-        else if (estadoAtual == GAME)
+        if (estadoAtual == GAME)
         {
             tempo += delta;
+            Vector2 antigaPos = jogador;
 
-            // Salva posição do frame anterior para o caso de colisão
-            Vector2 antigaPosicao = jogador;
+            // CONTROLES REATIVADOS: Agora move livremente para todas as direções
+            if (IsKeyDown(KEY_RIGHT)) jogador.x += velX * delta;
+            if (IsKeyDown(KEY_LEFT))  jogador.x -= velX * delta;
+            if (IsKeyDown(KEY_UP))    jogador.y -= velX * delta; // Cima livre!
+            if (IsKeyDown(KEY_DOWN))  jogador.y += velX * delta; // Baixo livre!
 
-            // Movimentação calibrada com o Delta Time
-            float passo = velocidadeBase * 60 * delta;
-            if (IsKeyDown(KEY_RIGHT)) jogador.x += passo;
-            if (IsKeyDown(KEY_LEFT))  jogador.x -= passo;
-            if (IsKeyDown(KEY_UP))    jogador.y -= passo;
-            if (IsKeyDown(KEY_DOWN))  jogador.y += passo;
-
-            // =========================================
-            // VERIFICAÇÃO DE COLISÃO COM O TILEMAP
-            // =========================================
-            int colunaX = jogador.x / TILE_SIZE;
-            int linhaY = jogador.y / TILE_SIZE;
-
-            if (linhaY >= 0 && linhaY < MAP_HEIGHT && colunaX >= 0 && colunaX < MAP_WIDTH)
+            // Resolução de Colisão com as Paredes (Empurra para fora do bloco)
+            Rectangle jogadorRect = { jogador.x - 22, jogador.y - 22, 44, 44 };
+            for (int i = 0; i < numPlataformas; i++)
             {
-                // Se pisar em Bloco Sólido (1), impede o avanço retornando à antiga posição
-                if (mapa[linhaY][colunaX] == 1)
+                if (CheckCollisionRecs(jogadorRect, plataformas[i]))
                 {
-                    jogador = antigaPosicao;
+                    // Se colidir, o jogador retorna para a última posição válida (antes de bater)
+                    jogador = antigaPos;
                 }
             }
 
-            // Atualiza histórico do corpo apenas se houve movimento efetivo válido
-            if (jogador.x != antigaPosicao.x || jogador.y != antigaPosicao.y)
-            {
+            // Atualiza o rastro do corpo apenas se a minhoca realmente andou
+            if (jogador.x != antigaPos.x || jogador.y != antigaPos.y) {
                 for (int i = tamanhoMinhoca - 1; i > 0; i--) corpo[i] = corpo[i - 1];
-                corpo[0] = antigaPosicao;
+                corpo[0] = antigaPos;
             }
 
-            // Foco e comandos de câmera
+            // Câmera foca na cabeça da minhoca no centro
             camera.target = jogador;
-            camera.zoom += GetMouseWheelMove() * 0.1f;
-            if (camera.zoom < 0.6f) camera.zoom = 0.6f;
-            if (camera.zoom > 1.8f) camera.zoom = 1.8f;
-            if (IsKeyDown(KEY_Q)) camera.rotation -= 50 * delta;
-            if (IsKeyDown(KEY_E)) camera.rotation += 50 * delta;
 
-            // Check colisão com Fruta Amarela
-            if (CheckCollisionCircles(jogador, 16, comida, 12))
-            {
-                CriarExplosao(particulas, comida);
+            // Coleta da Fruta Amarela
+            if (CheckCollisionCircles(jogador, 16, comida, 12)) {
                 score += 10;
-                if (tamanhoMinhoca < 100) tamanhoMinhoca += 2;
-
-                // Reposiciona fruta em uma área válida livre (onde tile == 0)
-                int novaL, novaC;
-                do {
-                    novaL = GetRandomValue(1, MAP_HEIGHT - 2);
-                    novaC = GetRandomValue(1, MAP_WIDTH - 2);
-                } while (mapa[novaL][novaC] != 0);
-
-                comida.x = novaC * TILE_SIZE + 32;
-                comida.y = novaL * TILE_SIZE + 32;
+                if (tamanhoMinhoca < 100) tamanhoMinhoca += 3;
+                comida = (Vector2){ (float)GetRandomValue(100, 1100), (float)GetRandomValue(100, 600) };
             }
 
-            // Ajuste manual de velocidade (Barra HUD)
-            if (IsKeyPressed(KEY_SPACE))
-            {
-                nivelVelocidade++;
-                velocidadeBase += 0.5f;
-                if (nivelVelocidade > 10) { nivelVelocidade = 1; velocidadeBase = 4.0f; }
-            }
-
-            // Game over por auto-mordida
-            for (int i = 12; i < tamanhoMinhoca; i++)
-            {
+            // Game over se bater no próprio corpo
+            for (int i = 15; i < tamanhoMinhoca; i++) {
                 if (CheckCollisionCircles(jogador, 10, corpo[i], 10)) estadoAtual = GAME_OVER;
             }
         }
-        else if (estadoAtual == GAME_OVER)
+        else if (IsKeyPressed(KEY_ENTER) && (estadoAtual == MENU || estadoAtual == GAME_OVER))
         {
-            if (IsKeyPressed(KEY_R))
-            {
-                jogador = (Vector2){ 200, 300 };
-                tamanhoMinhoca = 3;
-                estadoAtual = GAME;
-                score = 0;
-                tempo = 0;
-            }
-            if (IsKeyPressed(KEY_M)) estadoAtual = MENU;
+            // Inicializa ou reinicia variáveis ao apertar ENTER
+            jogador = (Vector2){ 200, 300 };
+            tamanhoMinhoca = 3;
+            score = 0; tempo = 0;
+            estadoAtual = GAME;
         }
-
-        // UPDATE DAS PARTÍCULAS
-        for (int i = 0; i < MAX_PARTICULAS; i++)
-        {
-            if (particulas[i].ativa)
-            {
-                particulas[i].posicao.x += particulas[i].velocidade.x * 100 * delta;
-                particulas[i].posicao.y += particulas[i].velocidade.y * 100 * delta;
-                particulas[i].tempoVida -= delta;
-                particulas[i].tamanho -= delta * 4;
-                if (particulas[i].tempoVida <= 0 || particulas[i].tamanho <= 0) particulas[i].ativa = false;
-            }
-        }
-
-        // Configura retângulos da Sprite Sheet
-        Rectangle source = { frameAtual * larguraFrame, 0, larguraFrame, alturaFrame };
-        Rectangle dest = { jogador.x, jogador.y, 44, 44 };
-        Vector2 centroSprite = { 22, 22 };
 
         // =========================================
-        // DRAW SCREEN
+        // RENDERIZAÇÃO
         // =========================================
         BeginDrawing();
         ClearBackground(BLACK);
 
-        if (estadoAtual == MENU)
+        if (estadoAtual == GAME)
         {
-            DrawText("MINHOCA TILEMAP ARCADE", larguraJanela / 2 - 240, 240, 36, PINK);
-            DrawText("Pressione ENTER para iniciar", larguraJanela / 2 - 180, 340, 24, YELLOW);
-            DrawText("Pressione I para Instrucoes", larguraJanela / 2 - 170, 390, 24, YELLOW);
-        }
-        else if (estadoAtual == INSTRUCTIONS)
-        {
-            DrawText("REGRAS E TILES", larguraJanela / 2 - 130, 160, 36, PINK);
-            DrawText("Paredes em PINK bloqueiam seu caminho completamente!", 280, 270, 22, YELLOW);
-            DrawText("Mova-se com as setas. Coma frutas amarelas para soltar particulas.", 220, 330, 22, PINK);
-            DrawText("Pressione BACKSPACE para retornar.", larguraJanela / 2 - 190, 450, 22, YELLOW);
-        }
-        else if (estadoAtual == GAME)
-        {
-            // =========================================
-            // MODO CAMERA 2D (Renderiza o mundo em blocos)
-            // =========================================
             BeginMode2D(camera);
-
-            for (int l = 0; l < MAP_HEIGHT; l++)
-            {
-                for (int c = 0; c < MAP_WIDTH; c++)
-                {
-                    int x = c * TILE_SIZE;
-                    int y = l * TILE_SIZE;
-                    int tile = mapa[l][c];
-
-                    if (tile == 1) // Parede em Rosa Pink Neon
-                    {
-                        DrawRectangle(x, y, TILE_SIZE, TILE_SIZE, PINK);
-                        DrawRectangleLines(x, y, TILE_SIZE, TILE_SIZE, MAROON);
-                    }
-                    else if (tile == 2) // Obstáculo interno escuro para dar contraste
-                    {
-                        DrawRectangle(x, y, TILE_SIZE, TILE_SIZE, CHILL_GRAY); // Substituído por DARKGRAY no padrão
-                    }
-                    else if (tile == 3) // Blocos de detalhes em cinza médio
-                    {
-                        DrawRectangle(x, y, TILE_SIZE, TILE_SIZE, GRAY);
-                    }
-                    else // Espaço vazio interno do labirinto
-                    {
-                        DrawRectangleLines(x, y, TILE_SIZE, TILE_SIZE, ColorAlpha(DARKGRAY, 0.3f));
-                    }
+                // Desenha os obstáculos em Rosa Pink
+                for (int i = 0; i < numPlataformas; i++) {
+                    DrawRectangleRec(plataformas[i], PINK);
+                    DrawRectangleLinesEx(plataformas[i], 2, MAROON);
                 }
-            }
-
-            // Desenha Fruta (Bolinha Amarela)
-            DrawCircleV(comida, 12, YELLOW);
-
-            // Desenha o corpo atrás da cabeça em segmentos PINK
-            for (int i = 0; i < tamanhoMinhoca; i++)
-            {
-                DrawCircleV(corpo[i], 14, PINK);
-            }
-
-            // Desenha a cabeça animada integrada com a matiz PINK
-            DrawTexturePro(sprite, source, dest, centroSprite, 0, PINK);
-
-            // Desenha partículas de explosão ativas (Amarelas)
-            for (int i = 0; i < MAX_PARTICULAS; i++)
-            {
-                if (particulas[i].ativa) DrawCircleV(particulas[i].posicao, particulas[i].tamanho, particulas[i].cor);
-            }
-
+                
+                // Desenha a fruta Amarela
+                DrawCircleV(comida, 12, YELLOW); 
+                
+                // Desenha o corpo em Rosa Pink
+                for (int i = 0; i < tamanhoMinhoca; i++) DrawCircleV(corpo[i], 14, PINK); 
+                
+                // Desenha a cabeça usando sua Sprite Sheet animada
+                DrawTexturePro(sprite, (Rectangle){ frameAtual * (sprite.width / 4), 0, sprite.width / 4, sprite.height },
+                               (Rectangle){ jogador.x, jogador.y, 44, 44 }, (Vector2){ 22, 22 }, 0, PINK);
             EndMode2D();
-            // =========================================
-            // TERMINA MODO CAMERA
-            // =========================================
 
-            // =========================================
-            // HUD FIXA SUPERIOR
-            // =========================================
-            DrawRectangle(0, 0, larguraJanela, 100, ColorAlpha(DARKGRAY, 0.85f));
-            DrawLine(0, 100, larguraJanela, 100, PINK);
-
-            DrawText("GRID SNAKE 2D", 25, 15, 26, YELLOW);
-            DrawText(TextFormat("Frutas: %d", score / 10), 25, 55, 20, YELLOW);
-            DrawText(TextFormat("Tamanho: %d", tamanhoMinhoca), 200, 55, 20, PINK);
-
-            // Barra de crescimento
-            DrawRectangle(350, 55, 200, 20, BLACK);
-            DrawRectangle(350, 55, tamanhoMinhoca * 2, 20, PINK);
-            DrawRectangleLines(350, 55, 200, 20, YELLOW);
-
-            DrawText(TextFormat("Velocidade: x%.1f", velocidadeBase), 580, 55, 20, YELLOW);
-            DrawText(TextFormat("Zoom Camera: %.2f", camera.zoom), 780, 55, 20, PINK);
-            DrawText(TextFormat("Tempo: %.1f s", tempo), 1020, 55, 20, YELLOW);
+            // HUD Estática (Fixa na tela)
+            DrawRectangle(0, 0, 1280, 80, ColorAlpha(DARKGRAY, 0.8f));
+            DrawText(TextFormat("PONTOS: %d  |  CORPO: %d  |  TEMPO: %.1f s", score, tamanhoMinhoca, tempo), 30, 25, 24, YELLOW);
         }
-        else if (estadoAtual == GAME_OVER)
+        else 
         {
-            DrawText("GAME OVER", larguraJanela / 2 - 130, 220, 48, PINK);
-            DrawText(TextFormat("Pontos liquidados: %d", score), larguraJanela / 2 - 110, 300, 22, YELLOW);
-            DrawText("Pressione R para tentar de novo", larguraJanela / 2 - 160, 380, 22, YELLOW);
-            DrawText("Pressione M para ir ao Menu principal", larguraJanela / 2 - 195, 420, 22, PINK);
+            // Telas de Menu / Game Over dinâmicas
+            char* txtPrincipal = (estadoAtual == MENU) ? "MINHOCA ARCADE 2D" : "GAME OVER";
+            char* txtSecundario = (estadoAtual == MENU) ? "Use as SETAS para se mover | ENTER para iniciar" : "Pressione ENTER para reiniciar";
+            DrawText(txtPrincipal, 640 - MeasureText(txtPrincipal, 36)/2, 300, 36, PINK);
+            DrawText(txtSecundario, 640 - MeasureText(txtSecundario, 20)/2, 400, 20, YELLOW);
         }
 
         EndDrawing();
     }
 
-    // Liberação e encerramento seguros
     UnloadTexture(sprite);
     CloseWindow();
-
     return 0;
 }
