@@ -1,195 +1,164 @@
 #include "raylib.h"
-#include "raymath.h" // Inclui funções de vetor como Vector2Distance
+#include "raymath.h"
+#include <stdio.h>
+
+#define MAX_COMIDAS 6
+#define MUNDO_LARGURA 3000
+#define MUNDO_ALTURA 2000
 
 typedef enum { MENU, GAME, GAME_OVER } GameState;
 typedef enum { PATROL, CHASE } EnemyState;
 
-typedef struct Enemy {
-    Vector2 posicao;
-    float velocidade;
-    int direcao;
-    EnemyState estado;
-} Enemy;
+typedef struct SaveData { Vector2 jogador; int score; int tamanhoMinhoca; } SaveData;
+typedef struct Enemy { Vector2 posicao; float velocidade; int direcao; EnemyState estado; } Enemy;
+
+void SalvarJogo(SaveData d) {
+    FILE *f = fopen("save_minhoca.txt", "w");
+    if (f) { fprintf(f, "%f\n%f\n%d\n%d\n", d.jogador.x, d.jogador.y, d.score, d.tamanhoMinhoca); fclose(f); }
+}
+
+void CarregarJogo(SaveData *d) {
+    FILE *f = fopen("save_minhoca.txt", "r");
+    if (f) { fscanf(f, "%f %f %d %d", &d->jogador.x, &d->jogador.y, &d->score, &d->tamanhoMinhoca); fclose(f); }
+}
+
+Vector2 GerarComidaValida(Rectangle plat[], int num) {
+    Vector2 p; bool col;
+    do {
+        col = false;
+        p = (Vector2){ (float)GetRandomValue(100, MUNDO_LARGURA - 100), (float)GetRandomValue(100, MUNDO_ALTURA - 100) };
+        for (int i = 0; i < num; i++) if (CheckCollisionCircleRec(p, 12, plat[i])) col = true;
+    } while (col);
+    return p;
+}
 
 int main(void)
 {
-    const int numPlataformas = 7;
-    InitWindow(1280, 768, "Minhoca 2D - Inteligencia Artificial");
+    const int numPlat = 10;
+    InitWindow(1280, 768, "Minhoca 2D - Mundo Aberto Compacto");
     SetTargetFPS(60);
 
-    // Recursos e Estados do Jogo
     Texture2D sprite = LoadTexture("player.png");
-    int frameAtual = 0;
-    float tempoAnimacao = 0;
-    GameState estadoAtual = MENU;
+    int frameAtual = 0; float tempoAnim = 0;
+    GameState estado = MENU;
 
-    // Configurações do Jogador (Minhoca)
-    Vector2 jogador = { 200, 350 };
-    Vector2 corpo[100] = { 0 };
-    int tamanhoMinhoca = 3;
-    float velJogador = 300.0f;
+    SaveData dados = { { 200, 350 }, 0, 3 };
+    Vector2 corpo[100] = { 0 }, comidas[MAX_COMIDAS];
+    float velJog = 350.0f, tempo = 0, dtNotif = 0;
+    char* msgNotif = "";
 
-    // Configurações do Inimigo com IA
-    Enemy inimigo = { { 800, 384 }, 150.0f, 1, PATROL };
+    Enemy inimigo = { { 1500, 1000 }, 160.0f, 1, PATROL };
+    Camera2D camera = { (Vector2){ 640, 384 }, dados.jogador, 0.0f, 1.0f };
 
-    Camera2D camera = { (Vector2){ 640, 384 }, jogador, 0.0f, 1.0f };
-    Vector2 comida = { 512, 200 };
-    int score = 0;
-    float tempo = 0;
-
-    // Definição dos blocos do mapa
-    Rectangle plataformas[] = {
-        { 0, 704, 1280, 64 },    // Chão
-        { 0, 0, 1280, 64 },      // Teto
-        { 0, 0, 64, 768 },        // Parede esquerda
-        { 1216, 0, 64, 768 },     // Parede direita
-        { 448, 192, 256, 64 },    // Obstáculo 1
-        { 192, 448, 192, 64 },    // Obstáculo 2
-        { 768, 448, 256, 64 }     // Obstáculo 3
+    Rectangle plat[] = {
+        { 0, MUNDO_ALTURA - 64, MUNDO_LARGURA, 64 }, { 0, 0, MUNDO_LARGURA, 64 },
+        { 0, 0, 64, MUNDO_ALTURA }, { MUNDO_LARGURA - 64, 0, 64, MUNDO_ALTURA },
+        { 500, 400, 400, 64 }, { 1200, 300, 64, 500 }, { 800, 1200, 500, 64 },
+        { 1800, 800, 300, 64 }, { 2200, 1400, 64, 400 }, { 1500, 1600, 400, 64 }
     };
+
+    for (int i = 0; i < MAX_COMIDAS; i++) comidas[i] = GerarComidaValida(plat, numPlat);
 
     while (!WindowShouldClose())
     {
         float delta = GetFrameTime();
+        if (dtNotif > 0) dtNotif -= delta;
 
-        // Animação da cabeça da minhoca
-        tempoAnimacao += delta;
-        if (tempoAnimacao >= 0.15f) {
-            frameAtual = (frameAtual + 1) % 4;
-            tempoAnimacao = 0;
-        }
+        if ((tempoAnim += delta) >= 0.15f) { frameAtual = (frameAtual + 1) % 4; tempoAnim = 0; }
 
-        if (estadoAtual == GAME)
+        if (estado == GAME)
         {
             tempo += delta;
-            Vector2 antigaPos = jogador;
+            Vector2 ant = dados.jogador;
 
-            // Movimentação livre em 4 direções
-            if (IsKeyDown(KEY_RIGHT)) jogador.x += velJogador * delta;
-            if (IsKeyDown(KEY_LEFT))  jogador.x -= velJogador * delta;
-            if (IsKeyDown(KEY_UP))    jogador.y -= velJogador * delta;
-            if (IsKeyDown(KEY_DOWN))  jogador.y += velJogador * delta;
+            if (IsKeyDown(KEY_RIGHT)) dados.jogador.x += velJog * delta;
+            if (IsKeyDown(KEY_LEFT))  dados.jogador.x -= velJog * delta;
+            if (IsKeyDown(KEY_UP))    dados.jogador.y -= velJog * delta;
+            if (IsKeyDown(KEY_DOWN))  dados.jogador.y += velJog * delta;
 
-            // Colisão da Minhoca com as Paredes do Mapa
-            Rectangle jogadorRect = { jogador.x - 22, jogador.y - 22, 44, 44 };
-            for (int i = 0; i < numPlataformas; i++) {
-                if (CheckCollisionRecs(jogadorRect, plataformas[i])) {
-                    jogador = antigaPos;
+            if (IsKeyPressed(KEY_S)) { SalvarJogo(dados); msgNotif = "JOGO SALVO!"; dtNotif = 1.5f; }
+            if (IsKeyPressed(KEY_L)) { CarregarJogo(&dados); for(int i=0; i<dados.tamanhoMinhoca; i++) corpo[i]=dados.jogador; msgNotif = "SAVE CARREGADO!"; dtNotif = 1.5f; }
+
+            Rectangle jRect = { dados.jogador.x - 22, dados.jogador.y - 22, 44, 44 };
+            for (int i = 0; i < numPlat; i++) if (CheckCollisionRecs(jRect, plat[i])) dados.jogador = ant;
+
+            if (dados.jogador.x != ant.x || dados.jogador.y != ant.y) {
+                for (int i = dados.tamanhoMinhoca - 1; i > 0; i--) corpo[i] = corpo[i - 1];
+                corpo[0] = ant;
+            }
+
+            // IA Otimizada
+            float dist = Vector2Distance(dados.jogador, inimigo.posicao);
+            inimigo.estado = (dist < 400.0f) ? CHASE : PATROL;
+
+            if (inimigo.estado == PATROL) {
+                inimigo.posicao.x += inimigo.velocidade * inimigo.direcao * delta;
+                if (inimigo.posicao.x > 1800 || inimigo.posicao.x < 1200) inimigo.direcao *= -1;
+            } else {
+                Vector2 dir = Vector2Normalize(Vector2Subtract(dados.jogador, inimigo.posicao));
+                inimigo.posicao = Vector2Add(inimigo.posicao, Vector2Scale(dir, inimigo.velocidade * 1.3f * delta));
+            }
+
+            if (CheckCollisionCircles(dados.jogador, 20, inimigo.posicao, 22)) estado = GAME_OVER;
+            camera.target = dados.jogador;
+
+            // Coleta de comida
+            for (int i = 0; i < MAX_COMIDAS; i++) {
+                if (CheckCollisionCircles(dados.jogador, 16, comidas[i], 12)) {
+                    dados.score += 10;
+                    if (dados.tamanhoMinhoca < 100) dados.tamanhoMinhoca += 3;
+                    comidas[i] = GerarComidaValida(plat, numPlat);
                 }
             }
 
-            // Atualiza o rastro do corpo da minhoca
-            if (jogador.x != antigaPos.x || jogador.y != antigaPos.y) {
-                for (int i = tamanhoMinhoca - 1; i > 0; i--) corpo[i] = corpo[i - 1];
-                corpo[0] = antigaPos;
-            }
-
-            // =========================================
-            // LÓGICA DE INTELIGÊNCIA ARTIFICIAL (IA)
-            // =========================================
-            float distancia = Vector2Distance(jogador, inimigo.posicao);
-
-            // Transição de Estado por Proximidade (Visão do Inimigo)
-            if (distancia < 250.0f) {
-                inimigo.estado = CHASE;
-            } else {
-                inimigo.estado = PATROL;
-            }
-
-            // Execução dos Estados da FSM
-            if (inimigo.estado == PATROL) {
-                // Anda de um lado para o outro na horizontal
-                inimigo.posicao.x += inimigo.velocidade * inimigo.direcao * delta;
-                if (inimigo.posicao.x > 1000) inimigo.direcao = -1;
-                if (inimigo.posicao.x < 700)  inimigo.direcao = 1;
-            } 
-            else if (inimigo.estado == CHASE) {
-                // Persegue o jogador calculando o vetor de direção normalizado
-                Vector2 dirVetor = Vector2Normalize(Vector2Subtract(jogador, inimigo.posicao));
-                inimigo.posicao.x += dirVetor.x * (inimigo.velocidade * 1.4f) * delta;
-                inimigo.posicao.y += dirVetor.y * (inimigo.velocidade * 1.4f) * delta;
-            }
-
-            // Colisão do Inimigo contra a cabeça do Jogador (Dano)
-            if (CheckCollisionCircles(jogador, 20, inimigo.posicao, 22)) {
-                estadoAtual = GAME_OVER;
-            }
-
-            camera.target = jogador;
-
-            // Coleta de Fruta Amarela
-            if (CheckCollisionCircles(jogador, 16, comida, 12)) {
-                score += 10;
-                if (tamanhoMinhoca < 100) tamanhoMinhoca += 3;
-                comida = (Vector2){ (float)GetRandomValue(100, 1100), (float)GetRandomValue(100, 600) };
-            }
-
-            // Auto-colisão com o próprio rastro
-            for (int i = 15; i < tamanhoMinhoca; i++) {
-                if (CheckCollisionCircles(jogador, 10, corpo[i], 10)) estadoAtual = GAME_OVER;
-            }
+            for (int i = 15; i < dados.tamanhoMinhoca; i++)
+                if (CheckCollisionCircles(dados.jogador, 10, corpo[i], 10)) estado = GAME_OVER;
         }
-        else if (IsKeyPressed(KEY_ENTER) && (estadoAtual == MENU || estadoAtual == GAME_OVER))
+        else if (IsKeyPressed(KEY_ENTER))
         {
-            // Reinicialização segura das entidades
-            jogador = (Vector2){ 200, 350 };
-            inimigo.posicao = (Vector2){ 800, 384 };
-            inimigo.estado = PATROL;
-            tamanhoMinhoca = 3;
-            score = 0; tempo = 0;
-            estadoAtual = GAME;
+            dados = (SaveData){ { 200, 350 }, 0, 3 };
+            inimigo.posicao = (Vector2){ 1500, 1000 }; inimigo.estado = PATROL;
+            tempo = 0; estado = GAME;
+            for (int i = 0; i < MAX_COMIDAS; i++) comidas[i] = GerarComidaValida(plat, numPlat);
         }
 
-        // =========================================
-        // RENDERIZAÇÃO
-        // =========================================
         BeginDrawing();
         ClearBackground(BLACK);
 
-        if (estadoAtual == GAME)
+        if (estado == GAME)
         {
             BeginMode2D(camera);
-                // Desenha os obstáculos do mapa em Rosa Pink
-                for (int i = 0; i < numPlataformas; i++) {
-                    DrawRectangleRec(plataformas[i], PINK);
-                    DrawRectangleLinesEx(plataformas[i], 2, MAROON);
-                }
+                for (int x = 0; x < MUNDO_LARGURA; x += 100) DrawLine(x, 0, x, MUNDO_ALTURA, DARKGRAY);
+                for (int y = 0; y < MUNDO_ALTURA; y += 100) DrawLine(0, y, MUNDO_LARGURA, y, DARKGRAY);
+                for (int i = 0; i < numPlat; i++) { DrawRectangleRec(plat[i], PINK); DrawRectangleLinesEx(plat[i], 2, MAROON); }
+                for (int i = 0; i < MAX_COMIDAS; i++) DrawCircleV(comidas[i], 12, YELLOW);
+                for (int i = 0; i < dados.tamanhoMinhoca; i++) DrawCircleV(corpo[i], 14, PINK);
                 
-                DrawCircleV(comida, 12, YELLOW); // Fruta
-                
-                for (int i = 0; i < tamanhoMinhoca; i++) DrawCircleV(corpo[i], 14, PINK); // Cauda
-                
-                // Cabeça da Minhoca (Sprite Sheet)
                 DrawTexturePro(sprite, (Rectangle){ frameAtual * (sprite.width / 4), 0, sprite.width / 4, sprite.height },
-                               (Rectangle){ jogador.x, jogador.y, 44, 44 }, (Vector2){ 22, 22 }, 0, PINK);
+                               (Rectangle){ dados.jogador.x, dados.jogador.y, 44, 44 }, (Vector2){ 22, 22 }, 0, PINK);
 
-                // DESENHA INIMIGO (Amarelo em Alerta / Vermelho Perseguindo)
-                Color corInimigo = (inimigo.estado == PATROL) ? YELLOW : RED;
-                DrawCircleV(inimigo.posicao, 22, corInimigo);
-                DrawCircleLines(inimigo.posicao.x, inimigo.posicao.y, 22, WHITE);
-
-                // Linha de mira laser quando está caçando você
-                if (inimigo.estado == CHASE) {
-                    DrawLineV(inimigo.posicao, jogador, ColorAlpha(RED, 0.6f));
-                }
+                DrawCircleV(inimigo.posicao, 22, (inimigo.estado == PATROL) ? YELLOW : RED);
+                if (inimigo.estado == CHASE) DrawLineV(inimigo.posicao, dados.jogador, ColorAlpha(RED, 0.5f));
             EndMode2D();
 
-            // HUD Superior Fixa
             DrawRectangle(0, 0, 1280, 80, ColorAlpha(DARKGRAY, 0.8f));
-            DrawText(TextFormat("PONTOS: %d  |  ALERTA IA: %s", score, (inimigo.estado == CHASE) ? "CHASE (PERIGO)" : "PATROL"), 30, 25, 24, YELLOW);
+            DrawText(TextFormat("PONTOS: %d | X:%.0f Y:%.0f | S = SALVAR | L = CARREGAR", dados.score, dados.jogador.x, dados.jogador.y), 30, 28, 22, YELLOW);
+
+            if (dtNotif > 0) {
+                DrawRectangle(540, 100, 200, 40, MAROON);
+                DrawText(msgNotif, 640 - MeasureText(msgNotif, 18)/2, 112, 18, YELLOW);
+            }
         }
         else 
         {
-            char* txtPrincipal = (estadoAtual == MENU) ? "MINHOCA INTELIGENCIA ARTIFICIAL" : "GAME OVER";
-            char* txtSecundario = (estadoAtual == MENU) ? "Pressione ENTER para iniciar a evasao" : "O inimigo te pegou! Pressione ENTER para reiniciar";
-            DrawText(txtPrincipal, 640 - MeasureText(txtPrincipal, 32)/2, 300, 32, PINK);
-            DrawText(txtSecundario, 640 - MeasureText(txtSecundario, 20)/2, 400, 20, YELLOW);
+            char* t1 = (estado == MENU) ? "MINHOCA GIGANTE" : "GAME OVER";
+            char* t2 = (estado == MENU) ? "ENTER para explorar o mapa" : "ENTER para tentar novamente";
+            DrawText(t1, 640 - MeasureText(t1, 32)/2, 300, 32, PINK);
+            DrawText(t2, 640 - MeasureText(t2, 20)/2, 400, 20, YELLOW);
         }
-
         EndDrawing();
     }
-
-    UnloadTexture(sprite);
-    CloseWindow();
+    UnloadTexture(sprite); 
+    CloseWindow(); 
     return 0;
 }
