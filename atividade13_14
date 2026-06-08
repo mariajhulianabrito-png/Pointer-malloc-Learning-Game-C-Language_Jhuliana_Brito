@@ -1,164 +1,77 @@
 #include "raylib.h"
-#include "raymath.h"
-#include <stdio.h>
+#include <stdlib.h>
 
-#define MAX_COMIDAS 6
-#define MUNDO_LARGURA 3000
-#define MUNDO_ALTURA 2000
+#define MAX_PLAT 8
+#define TELA_L 600
+#define TELA_A 800
 
-typedef enum { MENU, GAME, GAME_OVER } GameState;
-typedef enum { PATROL, CHASE } EnemyState;
+typedef enum { MENU, JOGO, GAMEOVER } State;
+typedef struct { Rectangle r; int tipo; int dirX; bool ativa; } Plat;
 
-typedef struct SaveData { Vector2 jogador; int score; int tamanhoMinhoca; } SaveData;
-typedef struct Enemy { Vector2 posicao; float velocidade; int direcao; EnemyState estado; } Enemy;
-
-void SalvarJogo(SaveData d) {
-    FILE *f = fopen("save_minhoca.txt", "w");
-    if (f) { fprintf(f, "%f\n%f\n%d\n%d\n", d.jogador.x, d.jogador.y, d.score, d.tamanhoMinhoca); fclose(f); }
+void NovaPlat(Plat *p, float y) {
+    p->r = (Rectangle){ GetRandomValue(0, TELA_L - 100), y, 100, 15 };
+    p->ativa = true; p->dirX = (GetRandomValue(0, 1) == 0) ? -1 : 1;
+    int c = GetRandomValue(0, 100); p->tipo = (c < 60) ? 0 : (c < 85 ? 1 : 2);
 }
 
-void CarregarJogo(SaveData *d) {
-    FILE *f = fopen("save_minhoca.txt", "r");
-    if (f) { fscanf(f, "%f %f %d %d", &d->jogador.x, &d->jogador.y, &d->score, &d->tamanhoMinhoca); fclose(f); }
-}
+int main(void) {
+    InitWindow(TELA_L, TELA_A, "Jump Game"); SetTargetFPS(60);
+    State st = MENU; int hi = 0, score = 0;
+    Vector2 plPos = { 300, 600 }; float velY = 0;
+    Plat plats[MAX_PLAT];
+    Rectangle bPlay = { 150, 350, 300, 60 }, bRest = { 150, 450, 300, 60 };
 
-Vector2 GerarComidaValida(Rectangle plat[], int num) {
-    Vector2 p; bool col;
-    do {
-        col = false;
-        p = (Vector2){ (float)GetRandomValue(100, MUNDO_LARGURA - 100), (float)GetRandomValue(100, MUNDO_ALTURA - 100) };
-        for (int i = 0; i < num; i++) if (CheckCollisionCircleRec(p, 12, plat[i])) col = true;
-    } while (col);
-    return p;
-}
+    for (int i = 0; i < MAX_PLAT; i++) NovaPlat(&plats[i], TELA_A - (i * 110) - 50);
+    plats[0] = (Plat){ { 250, 700, 100, 15 }, 0, 1, true };
 
-int main(void)
-{
-    const int numPlat = 10;
-    InitWindow(1280, 768, "Minhoca 2D - Mundo Aberto Compacto");
-    SetTargetFPS(60);
+    while (!WindowShouldClose()) {
+        Vector2 m = GetMousePosition();
 
-    Texture2D sprite = LoadTexture("player.png");
-    int frameAtual = 0; float tempoAnim = 0;
-    GameState estado = MENU;
+        if (st == JOGO) {
+            if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) plPos.x -= 6.0f;
+            if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) plPos.x += 6.0f;
+            if (plPos.x < -40) plPos.x = TELA_L; else if (plPos.x > TELA_L) plPos.x = -40;
 
-    SaveData dados = { { 200, 350 }, 0, 3 };
-    Vector2 corpo[100] = { 0 }, comidas[MAX_COMIDAS];
-    float velJog = 350.0f, tempo = 0, dtNotif = 0;
-    char* msgNotif = "";
+            velY += 0.4f; plPos.y += velY; // Gravidade estável por frame
+            if (plPos.y > TELA_A) { if (score > hi) hi = score; st = GAMEOVER; }
 
-    Enemy inimigo = { { 1500, 1000 }, 160.0f, 1, PATROL };
-    Camera2D camera = { (Vector2){ 640, 384 }, dados.jogador, 0.0f, 1.0f };
-
-    Rectangle plat[] = {
-        { 0, MUNDO_ALTURA - 64, MUNDO_LARGURA, 64 }, { 0, 0, MUNDO_LARGURA, 64 },
-        { 0, 0, 64, MUNDO_ALTURA }, { MUNDO_LARGURA - 64, 0, 64, MUNDO_ALTURA },
-        { 500, 400, 400, 64 }, { 1200, 300, 64, 500 }, { 800, 1200, 500, 64 },
-        { 1800, 800, 300, 64 }, { 2200, 1400, 64, 400 }, { 1500, 1600, 400, 64 }
-    };
-
-    for (int i = 0; i < MAX_COMIDAS; i++) comidas[i] = GerarComidaValida(plat, numPlat);
-
-    while (!WindowShouldClose())
-    {
-        float delta = GetFrameTime();
-        if (dtNotif > 0) dtNotif -= delta;
-
-        if ((tempoAnim += delta) >= 0.15f) { frameAtual = (frameAtual + 1) % 4; tempoAnim = 0; }
-
-        if (estado == GAME)
-        {
-            tempo += delta;
-            Vector2 ant = dados.jogador;
-
-            if (IsKeyDown(KEY_RIGHT)) dados.jogador.x += velJog * delta;
-            if (IsKeyDown(KEY_LEFT))  dados.jogador.x -= velJog * delta;
-            if (IsKeyDown(KEY_UP))    dados.jogador.y -= velJog * delta;
-            if (IsKeyDown(KEY_DOWN))  dados.jogador.y += velJog * delta;
-
-            if (IsKeyPressed(KEY_S)) { SalvarJogo(dados); msgNotif = "JOGO SALVO!"; dtNotif = 1.5f; }
-            if (IsKeyPressed(KEY_L)) { CarregarJogo(&dados); for(int i=0; i<dados.tamanhoMinhoca; i++) corpo[i]=dados.jogador; msgNotif = "SAVE CARREGADO!"; dtNotif = 1.5f; }
-
-            Rectangle jRect = { dados.jogador.x - 22, dados.jogador.y - 22, 44, 44 };
-            for (int i = 0; i < numPlat; i++) if (CheckCollisionRecs(jRect, plat[i])) dados.jogador = ant;
-
-            if (dados.jogador.x != ant.x || dados.jogador.y != ant.y) {
-                for (int i = dados.tamanhoMinhoca - 1; i > 0; i--) corpo[i] = corpo[i - 1];
-                corpo[0] = ant;
-            }
-
-            // IA Otimizada
-            float dist = Vector2Distance(dados.jogador, inimigo.posicao);
-            inimigo.estado = (dist < 400.0f) ? CHASE : PATROL;
-
-            if (inimigo.estado == PATROL) {
-                inimigo.posicao.x += inimigo.velocidade * inimigo.direcao * delta;
-                if (inimigo.posicao.x > 1800 || inimigo.posicao.x < 1200) inimigo.direcao *= -1;
-            } else {
-                Vector2 dir = Vector2Normalize(Vector2Subtract(dados.jogador, inimigo.posicao));
-                inimigo.posicao = Vector2Add(inimigo.posicao, Vector2Scale(dir, inimigo.velocidade * 1.3f * delta));
-            }
-
-            if (CheckCollisionCircles(dados.jogador, 20, inimigo.posicao, 22)) estado = GAME_OVER;
-            camera.target = dados.jogador;
-
-            // Coleta de comida
-            for (int i = 0; i < MAX_COMIDAS; i++) {
-                if (CheckCollisionCircles(dados.jogador, 16, comidas[i], 12)) {
-                    dados.score += 10;
-                    if (dados.tamanhoMinhoca < 100) dados.tamanhoMinhoca += 3;
-                    comidas[i] = GerarComidaValida(plat, numPlat);
+            if (plPos.y < TELA_A / 2) {
+                float diff = (TELA_A / 2) - plPos.y; plPos.y = TELA_A / 2; score += (int)diff;
+                for (int i = 0; i < MAX_PLAT; i++) {
+                    plats[i].r.y += diff;
+                    if (plats[i].r.y > TELA_A) NovaPlat(&plats[i], plats[i].r.y - TELA_A);
                 }
             }
-
-            for (int i = 15; i < dados.tamanhoMinhoca; i++)
-                if (CheckCollisionCircles(dados.jogador, 10, corpo[i], 10)) estado = GAME_OVER;
-        }
-        else if (IsKeyPressed(KEY_ENTER))
-        {
-            dados = (SaveData){ { 200, 350 }, 0, 3 };
-            inimigo.posicao = (Vector2){ 1500, 1000 }; inimigo.estado = PATROL;
-            tempo = 0; estado = GAME;
-            for (int i = 0; i < MAX_COMIDAS; i++) comidas[i] = GerarComidaValida(plat, numPlat);
-        }
-
-        BeginDrawing();
-        ClearBackground(BLACK);
-
-        if (estado == GAME)
-        {
-            BeginMode2D(camera);
-                for (int x = 0; x < MUNDO_LARGURA; x += 100) DrawLine(x, 0, x, MUNDO_ALTURA, DARKGRAY);
-                for (int y = 0; y < MUNDO_ALTURA; y += 100) DrawLine(0, y, MUNDO_LARGURA, y, DARKGRAY);
-                for (int i = 0; i < numPlat; i++) { DrawRectangleRec(plat[i], PINK); DrawRectangleLinesEx(plat[i], 2, MAROON); }
-                for (int i = 0; i < MAX_COMIDAS; i++) DrawCircleV(comidas[i], 12, YELLOW);
-                for (int i = 0; i < dados.tamanhoMinhoca; i++) DrawCircleV(corpo[i], 14, PINK);
-                
-                DrawTexturePro(sprite, (Rectangle){ frameAtual * (sprite.width / 4), 0, sprite.width / 4, sprite.height },
-                               (Rectangle){ dados.jogador.x, dados.jogador.y, 44, 44 }, (Vector2){ 22, 22 }, 0, PINK);
-
-                DrawCircleV(inimigo.posicao, 22, (inimigo.estado == PATROL) ? YELLOW : RED);
-                if (inimigo.estado == CHASE) DrawLineV(inimigo.posicao, dados.jogador, ColorAlpha(RED, 0.5f));
-            EndMode2D();
-
-            DrawRectangle(0, 0, 1280, 80, ColorAlpha(DARKGRAY, 0.8f));
-            DrawText(TextFormat("PONTOS: %d | X:%.0f Y:%.0f | S = SALVAR | L = CARREGAR", dados.score, dados.jogador.x, dados.jogador.y), 30, 28, 22, YELLOW);
-
-            if (dtNotif > 0) {
-                DrawRectangle(540, 100, 200, 40, MAROON);
-                DrawText(msgNotif, 640 - MeasureText(msgNotif, 18)/2, 112, 18, YELLOW);
+        } else if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            if (st == MENU && CheckCollisionPointRec(m, bPlay)) st = JOGO;
+            else if (st == GAMEOVER && CheckCollisionPointRec(m, bRest)) {
+                plPos = (Vector2){ 300, 600 }; velY = 0; score = 0; st = JOGO;
+                for (int i = 0; i < MAX_PLAT; i++) NovaPlat(&plats[i], TELA_A - (i * 110) - 50);
+                plats[0] = (Plat){ { 250, 700, 100, 15 }, 0, 1, true };
             }
         }
-        else 
-        {
-            char* t1 = (estado == MENU) ? "MINHOCA GIGANTE" : "GAME OVER";
-            char* t2 = (estado == MENU) ? "ENTER para explorar o mapa" : "ENTER para tentar novamente";
-            DrawText(t1, 640 - MeasureText(t1, 32)/2, 300, 32, PINK);
-            DrawText(t2, 640 - MeasureText(t2, 20)/2, 400, 20, YELLOW);
+
+        BeginDrawing(); ClearBackground(SKYBLUE);
+        if (st == JOGO) {
+            for (int i = 0; i < MAX_PLAT; i++) if (plats[i].ativa) {
+                if (plats[i].tipo == 1) {
+                    plats[i].r.x += plats[i].dirX * 3.0f;
+                    if (plats[i].r.x <= 0 || plats[i].r.x >= TELA_L - 100) plats[i].dirX *= -1;
+                }
+                if (velY > 0 && CheckCollisionRecs((Rectangle){plPos.x, plPos.y, 40, 40}, plats[i].r) && plPos.y + 40 <= plats[i].r.y + 12) {
+                    if (plats[i].tipo == 2) plats[i].ativa = false; else velY = -13.0f; // Impulso do pulo fixado
+                }
+                DrawRectangleRec(plats[i].r, plats[i].tipo == 0 ? GREEN : (plats[i].tipo == 1 ? ORANGE : RED));
+            }
+            DrawRectangle(plPos.x, plPos.y, 40, 40, PURPLE);
+            DrawText(TextFormat("SCORE: %d", score), 20, 15, 22, BROWN);
+        } else {
+            bool menu = (st == MENU); Rectangle b = menu ? bPlay : bRest;
+            DrawText(menu ? "JUMP GAME" : "GAME OVER", TELA_L/2 - MeasureText(menu ? "JUMP GAME" : "GAME OVER", 40)/2, 200, 40, menu ? DARKBLUE : RED);
+            DrawRectangleRounded(b, 0.3f, 10, CheckCollisionPointRec(m, b) ? BLUE : DARKBLUE);
+            DrawText(menu ? "JOGAR" : "REINICIAR", b.x + b.width/2 - MeasureText(menu ? "JOGAR" : "REINICIAR", 24)/2, b.y + 18, 24, WHITE);
         }
         EndDrawing();
     }
-    UnloadTexture(sprite); 
-    CloseWindow(); 
-    return 0;
+    CloseWindow(); return 0;
 }
