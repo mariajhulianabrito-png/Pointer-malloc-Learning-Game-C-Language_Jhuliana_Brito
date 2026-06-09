@@ -1,76 +1,823 @@
 #include "raylib.h"
-#include <stdlib.h>
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
 
-#define MAX_PLAT 8
-#define TELA_L 600
-#define TELA_A 800
+#define W 600
+#define H 800
+#define ND 10
+#define MP 160
+#define MF 24
+#define ME 500
+#define MJT 20
+#define ANDARES 3
+#define COLUNAS 5
+#define JX0 80
+#define JY0 350 // Alterado de 200 para 350 para aproximar o prédio do caminhão
+#define JW 82
+#define JH 62
 
-typedef enum { MENU, JOGO, GAMEOVER } State;
-typedef struct { Rectangle r; int tipo; int dirX; bool ativa; } Plat;
+typedef enum { MENU, M1, M2, M3, M4, M5, VITFINAL, GAMEOVER } Estado;
 
-void NovaPlat(Plat *p, float y) {
-    p->r = (Rectangle){ GetRandomValue(0, TELA_L - 100), y, 100, 15 };
-    p->ativa = true; p->dirX = (GetRandomValue(0, 1) == 0) ? -1 : 1;
-    int c = GetRandomValue(0, 100); p->tipo = (c < 60) ? 0 : (c < 85 ? 1 : 2);
+typedef struct { float x,y,vx,vy,a,r; Color c; bool on; } Part;
+typedef struct { float x,y,vx,vy,t; Color c; bool on; } Foguete;
+typedef struct { float x,y,vx,vy,a; Color c; bool on; } Estil;
+typedef struct { float x,y,vx,vy,a; bool on; } Jato;
+typedef struct { int col,row; float fogo; bool salvo; bool figurante; } Janela;
+typedef struct { float x,y; bool salvo; bool on; } Vitima;
+typedef struct { float x,y,vx; int hp; bool on; Color c; } Barril;
+typedef struct { float x,y,vx,vy; int tipo; bool on; } Obstaculo;
+
+static Part pts[MP];
+static Foguete fogs[MF];
+static Estil est[ME];
+static Jato jts[MJT];
+static Janela jans[ANDARES*COLUNAS];
+static Vitima vits[8];
+static Barril barris[6];
+static Obstaculo obs[12];
+
+static void ResetParts(void) { for(int i=0;i<MP;i++) pts[i].on=false; }
+static void ResetRockets(void) { for(int i=0;i<MF;i++) fogs[i].on=false; for(int i=0;i<ME;i++) est[i].on=false; }
+static void ResetJatos(void) { for(int i=0;i<MJT;i++) jts[i].on=false; }
+
+static void EmitPart(float x, float y) {
+    for (int i = 0; i < MP; i++) if (!pts[i].on) {
+        pts[i] = (Part){ x+(float)GetRandomValue(-40,40), y, GetRandomValue(-15,15)/10.f, 
+            -(float)GetRandomValue(3,9)/1.f, 1.f, (float)GetRandomValue(6,20),
+            GetRandomValue(0,1)?(Color){255,(unsigned char)GetRandomValue(80,180),0,255}:(Color){120,120,120,255}, true };
+        break;
+    }
 }
 
-int main(void) {
-    InitWindow(TELA_L, TELA_A, "Jump Game"); SetTargetFPS(60);
-    State st = MENU; int hi = 0, score = 0;
-    Vector2 plPos = { 300, 600 }; float velY = 0;
-    Plat plats[MAX_PLAT];
-    Rectangle bPlay = { 150, 350, 300, 60 }, bRest = { 150, 450, 300, 60 };
+static void UpdParts(void) {
+    for (int i=0;i<MP;i++) { if(!pts[i].on) continue;
+        pts[i].x+=pts[i].vx; pts[i].y+=pts[i].vy; pts[i].a-=0.014f; 
+        if(pts[i].a<=0) pts[i].on=false;
+    }
+}
 
-    for (int i = 0; i < MAX_PLAT; i++) NovaPlat(&plats[i], TELA_A - (i * 110) - 50);
-    plats[0] = (Plat){ { 250, 700, 100, 15 }, 0, 1, true };
+static void DrawParts(void) {
+    for (int i=0;i<MP;i++) { if(!pts[i].on) continue;
+        Color c=pts[i].c; c.a=(unsigned char)(pts[i].a*200);
+        DrawCircle((int)pts[i].x,(int)pts[i].y,(int)pts[i].r,c);
+    }
+}
 
-    while (!WindowShouldClose()) {
-        Vector2 m = GetMousePosition();
+static void Explode(int k) {
+    Color cor=fogs[k].c;
+    for (int j=0;j<40;j++) for (int i=0;i<ME;i++) if(!est[i].on) {
+        float ang=GetRandomValue(0,628)/100.f, v=GetRandomValue(15,80)/10.f;
+        est[i]=(Estil){fogs[k].x,fogs[k].y,cosf(ang)*v,sinf(ang)*v,1.f,cor,true};
+        break;
+    }
+    fogs[k].on=false;
+}
 
-        if (st == JOGO) {
-            if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) plPos.x -= 6.0f;
-            if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) plPos.x += 6.0f;
-            if (plPos.x < -40) plPos.x = TELA_L; else if (plPos.x > TELA_L) plPos.x = -40;
+static void LaunchRocket(void) {
+    Color cores[]={RED,YELLOW,BLUE,GREEN,MAGENTA,ORANGE,SKYBLUE,WHITE};
+    for (int i=0;i<MF;i++) if(!fogs[i].on) {
+        fogs[i]=(Foguete){(float)GetRandomValue(80,W-80),(float)H, GetRandomValue(-20,20)/10.f,
+            -(float)GetRandomValue(12,18),0,cores[GetRandomValue(0,7)],true};
+        break;
+    }
+}
 
-            velY += 0.4f; plPos.y += velY; // Gravidade estável por frame
-            if (plPos.y > TELA_A) { if (score > hi) hi = score; st = GAMEOVER; }
+static void UpdFoguetes(void) {
+    for (int i=0;i<MF;i++) { if(!fogs[i].on) continue;
+        fogs[i].x+=fogs[i].vx; fogs[i].y+=fogs[i].vy; fogs[i].vy+=0.18f; fogs[i].t+=GetFrameTime();
+        if (fogs[i].vy>=0||fogs[i].t>2.5f) Explode(i);
+    }
+    for (int i=0;i<ME;i++) { if(!est[i].on) continue;
+        est[i].x+=est[i].vx; est[i].y+=est[i].vy; est[i].vy+=0.07f; est[i].vx*=0.98f; est[i].a-=0.016f;
+        if (est[i].a<=0) est[i].on=false;
+    }
+}
 
-            if (plPos.y < TELA_A / 2) {
-                float diff = (TELA_A / 2) - plPos.y; plPos.y = TELA_A / 2; score += (int)diff;
-                for (int i = 0; i < MAX_PLAT; i++) {
-                    plats[i].r.y += diff;
-                    if (plats[i].r.y > TELA_A) NovaPlat(&plats[i], plats[i].r.y - TELA_A);
-                }
-            }
-        } else if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-            if (st == MENU && CheckCollisionPointRec(m, bPlay)) st = JOGO;
-            else if (st == GAMEOVER && CheckCollisionPointRec(m, bRest)) {
-                plPos = (Vector2){ 300, 600 }; velY = 0; score = 0; st = JOGO;
-                for (int i = 0; i < MAX_PLAT; i++) NovaPlat(&plats[i], TELA_A - (i * 110) - 50);
-                plats[0] = (Plat){ { 250, 700, 100, 15 }, 0, 1, true };
+static void DrawFoguetes(void) {
+    for (int i=0;i<MF;i++) { if(!fogs[i].on) continue;
+        DrawCircle((int)fogs[i].x,(int)fogs[i].y,4,fogs[i].c);
+        Color t=fogs[i].c; t.a=120; DrawCircle((int)fogs[i].x,(int)(fogs[i].y+8),2,t);
+    }
+    for (int i=0;i<ME;i++) { if(!est[i].on) continue;
+        Color c=est[i].c; c.a=(unsigned char)(est[i].a*255);
+        DrawCircle((int)est[i].x,(int)est[i].y,2,c);
+    }
+}
+
+static void DrawBombeiro(int bx, int by, bool dir, int fr) {
+    int po=(fr%4<2)?3:-3;
+    DrawRectangle(bx+5,by+42+po,9,7,(Color){50,25,5,255});
+    DrawRectangle(bx+16,by+42-po,9,7,(Color){50,25,5,255});
+    DrawRectangle(bx+6,by+28,8,16+po,(Color){25,25,140,255});
+    DrawRectangle(bx+16,by+28,8,16-po,(Color){25,25,140,255});
+    DrawRectangle(bx+5,by+12,20,18,(Color){30,30,200,255});
+    DrawRectangle(bx+5,by+17,20,4,(Color){255,220,0,255});
+    DrawRectangle(dir?bx+2:bx+21,by+12,5,13,(Color){170,170,170,255});
+    DrawRectangle(bx+1,by+13+po,5,12,(Color){30,30,200,255});
+    DrawRectangle(bx+24,by+13-po,5,12,(Color){30,30,200,255});
+    DrawRectangle(bx+1,by+23+po,6,5,(Color){190,70,0,255});
+    DrawRectangle(bx+24,by+23-po,6,5,(Color){190,70,0,255});
+    DrawRectangle(bx+7,by,16,12,(Color){255,195,140,255});
+    DrawRectangle(bx+8,by+6,14,6,(Color){70,70,70,255});
+    DrawRectangle(bx+10,by+7,10,4,(Color){140,140,140,255});
+    DrawRectangle(dir?bx+15:bx+8,by+2,3,3,(Color){20,20,20,255});
+    DrawRectangle(bx+6,by-2,18,4,(Color){255,170,0,255});
+    DrawRectangle(bx+8,by-9,14,8,(Color){220,40,0,255});
+    DrawRectangle(bx+10,by-12,10,4,(Color){180,20,0,255});
+}
+
+static void DrawDegrau(Rectangle r) {
+    DrawRectangleRec(r,(Color){160,70,20,255});
+    for (int c=0;c<(int)r.width/28+1;c++)
+        DrawRectangleLines((int)r.x+c*28,(int)r.y,28,(int)r.height,(Color){90,30,5,255});
+    DrawRectangle((int)r.x,(int)r.y,(int)r.width,3,(Color){220,130,60,255});
+}
+
+static void DrawHUD(int chances, float timer, const char*info, int missao) {
+    DrawRectangle(0,0,W,48,(Color){0,0,0,170});
+    char ts[32]; sprintf(ts,"M%d  %02d:%02d",missao,(int)timer/60,(int)timer%60);
+    DrawText(ts,12,13,22,(Color){255,220,50,255});
+    DrawText("VIDAS:",220,14,19,(Color){255,95,95,255});
+    for(int i=0;i<3;i++){
+        Color hc=(i<chances)?(Color){255,45,75,255}:(Color){60,20,20,255};
+        int hx=298+i*30,hy=11;
+        DrawCircle(hx+4,hy+5,6,hc); DrawCircle(hx+14,hy+5,6,hc);
+        DrawTriangle((Vector2){hx-1,hy+9},(Vector2){hx+19,hy+9},(Vector2){hx+9,hy+22},hc);
+    }
+    if(info[0]) DrawText(info,W-MeasureText(info,15)-8,H-26,15,(Color){200,200,200,210});
+}
+
+static void DrawMissaoConcluida(int missao, float timer, const char*extra){
+    DrawRectangle(0,H/2-100,W,130,(Color){170,0,0,245});
+    DrawRectangle(0,H/2-104,W,8,(Color){255,195,0,255});
+    DrawRectangle(0,H/2+24,W,8,(Color){255,195,0,255});
+    char m1[64]; sprintf(m1,"MISSAO %d CONCLUIDA!",missao);
+    DrawText(m1,W/2-MeasureText(m1,32)/2+2,H/2-88,32,(Color){0,0,0,160});
+    DrawText(m1,W/2-MeasureText(m1,32)/2,H/2-90,32,(Color){255,230,50,255});
+    char m2[64]; sprintf(m2,"Tempo: %02d:%02d",(int)timer/60,(int)timer%60);
+    DrawText(m2,W/2-MeasureText(m2,20)/2,H/2-44,20,WHITE);
+    if(extra[0]) DrawText(extra,W/2-MeasureText(extra,17)/2,H/2-10,17,(Color){200,220,255,255});
+}
+
+static void DrawGameOver(int missao){
+    DrawRectangle(0,150,W,90,(Color){140,0,0,230});
+    DrawRectangle(0,153,W,4,(Color){255,90,0,255}); DrawRectangle(0,236,W,4,(Color){255,90,0,255});
+    char go[32]; sprintf(go,"GAME OVER - M%d",missao);
+    DrawText(go,W/2-MeasureText(go,36)/2+2,168,36,(Color){0,0,0,170});
+    DrawText(go,W/2-MeasureText(go,36)/2,166,36,(Color){255,75,45,255});
+}
+
+static Rectangle dg1[ND];
+static int degAtual=0, hpGanho=0;
+static float scrollFogo=0, fogoT=0;
+
+static void InitM1(void){
+    for(int i=0;i<ND;i++){
+        float px=(i%2==0)?60.f:(float)(W-180);
+        dg1[i]=(Rectangle){px,(float)(H-120)-i*63.f,130,16};
+    }
+    degAtual=0; hpGanho=0; scrollFogo=0; fogoT=0;
+    ResetParts();
+}
+
+static void DrawChamas(float altFogo) {
+    for (int i=0;i<10;i++) {
+        float fx=28.f+i*56.f, oy=sinf(GetTime()*3.f+i*0.8f)*10.f, by=altFogo+oy;
+        if(by>H) by=(float)H;
+        DrawCircle((int)fx,(int)by,26,(Color){200,30,0,200});
+        DrawCircle((int)fx,(int)(by-22),16,(Color){255,110,0,180});
+        DrawCircle((int)fx,(int)(by-38),10,(Color){255,200,40,160});
+        DrawCircle((int)fx,(int)(by-50),6,(Color){255,240,160,120});
+    }
+    DrawParts();
+    DrawRectangle(0,(int)altFogo+28,W,H-(int)altFogo,(Color){25,8,0,230});
+}
+
+static int camX2;
+static float mangAngle;
+static int fogoTotal2, fogoApagado2;
+
+static void InitM2(void){
+    fogoTotal2=0; fogoApagado2=0;
+    for(int r=0;r<ANDARES;r++) for(int c=0;c<COLUNAS;c++){
+        int idx=r*COLUNAS+c;
+        jans[idx].col=c; jans[idx].row=r;
+        jans[idx].fogo=(GetRandomValue(0,100)<70)?1.f:0.f;
+        jans[idx].salvo=false;
+        jans[idx].figurante=(jans[idx].fogo>0.5f && GetRandomValue(0,100)<60);
+        if(jans[idx].fogo>0) fogoTotal2++;
+    }
+    camX2=W/2-60; mangAngle=0.f;
+    ResetJatos();
+}
+
+static void FireJato(void){
+    for(int i=0;i<MJT;i++) if(!jts[i].on){
+        float rad=mangAngle*(PI/180.f);
+        // Velocidade ligeiramente ajustada de 14.f para 15.f para um arco perfeito
+        jts[i]=(Jato){(float)(camX2+60),(float)(H-90),cosf(rad)*15.f,sinf(rad)*15.f,1.f,true};
+        break;
+    }
+}
+
+static void UpdM2(float dt){
+    if(IsKeyDown(KEY_LEFT)||IsKeyDown(KEY_A))  camX2-=3;
+    if(IsKeyDown(KEY_RIGHT)||IsKeyDown(KEY_D)) camX2+=3;
+    if(camX2<0)camX2=0; if(camX2>W-130)camX2=W-130;
+    if(IsKeyDown(KEY_UP)||IsKeyDown(KEY_W))   mangAngle-=1.5f;
+    if(IsKeyDown(KEY_DOWN)||IsKeyDown(KEY_S)) mangAngle+=1.5f;
+    if(mangAngle>-20.f)mangAngle=-20.f; if(mangAngle<-160.f)mangAngle=-160.f;
+    if(IsKeyPressed(KEY_SPACE)) FireJato();
+    
+    for(int i=0;i<MJT;i++){if(!jts[i].on)continue;
+        jts[i].x+=jts[i].vx; jts[i].y+=jts[i].vy; jts[i].vy+=0.32f; // Gravidade ligeiramente reduzida para melhor alcance
+        jts[i].a-=0.012f; if(jts[i].a<=0||jts[i].y>H){jts[i].on=false;continue;}
+        
+        for(int r=0;r<ANDARES;r++) for(int c=0;c<COLUNAS;c++){
+            int idx=r*COLUNAS+c;
+            if(jans[idx].fogo<=0)continue;
+            float wx=JX0+c*JW, wy=JY0+r*JH;
+            if(jts[i].x>=wx&&jts[i].x<=wx+JW&&jts[i].y>=wy&&jts[i].y<=wy+JH){
+                jans[idx].fogo-=0.18f;
+                if(jans[idx].fogo<=0){jans[idx].fogo=0;jans[idx].salvo=true;fogoApagado2++;}
+                jts[i].on=false;
             }
         }
+    }
+    
+    static float espT=0; espT+=dt;
+    if(espT>4.f){ espT=0;
+        for(int r=0;r<ANDARES;r++) for(int c=0;c<COLUNAS;c++){
+            int idx=r*COLUNAS+c;
+            if(jans[idx].fogo>0) jans[idx].fogo+=0.08f;
+            if(jans[idx].fogo>1.f)jans[idx].fogo=1.f;
+        }
+    }
+}
 
-        BeginDrawing(); ClearBackground(SKYBLUE);
-        if (st == JOGO) {
-            for (int i = 0; i < MAX_PLAT; i++) if (plats[i].ativa) {
-                if (plats[i].tipo == 1) {
-                    plats[i].r.x += plats[i].dirX * 3.0f;
-                    if (plats[i].r.x <= 0 || plats[i].r.x >= TELA_L - 100) plats[i].dirX *= -1;
-                }
-                if (velY > 0 && CheckCollisionRecs((Rectangle){plPos.x, plPos.y, 40, 40}, plats[i].r) && plPos.y + 40 <= plats[i].r.y + 12) {
-                    if (plats[i].tipo == 2) plats[i].ativa = false; else velY = -13.0f; // Impulso do pulo fixado
-                }
-                DrawRectangleRec(plats[i].r, plats[i].tipo == 0 ? GREEN : (plats[i].tipo == 1 ? ORANGE : RED));
-            }
-            DrawRectangle(plPos.x, plPos.y, 40, 40, PURPLE);
-            DrawText(TextFormat("SCORE: %d", score), 20, 15, 22, BROWN);
+static void DrawFigurante(int x,int y,float fogo){
+    if(fogo>0.7f){
+        DrawRectangle(x+14,y+8,6,12,(Color){255,200,140,255});
+        DrawRectangle(x+12,y+20,10,10,(Color){50,100,200,255});
+        int bof=(int)(GetTime()*8)%2==0?-4:4;
+        DrawRectangle(x+5,y+20,7,5,(Color){50,100,200,255});
+        DrawRectangle(x+20,y+20,7,5,(Color){50,100,200,255});
+        DrawRectangle(x+5,y+15+bof,4,8,(Color){255,200,140,255});
+        DrawRectangle(x+23,y+15-bof,4,8,(Color){255,200,140,255});
+    }
+}
+
+static void DrawM2(int chances,float timer,bool vitoria){
+    ClearBackground((Color){15,12,28,255});
+    for(int i=0;i<6;i++){
+        float cx=50.f+i*90,cy=60.f+sinf(GetTime()*1.2f+i)*8;
+        DrawCircle((int)cx,(int)cy,22,(Color){60,60,60,(unsigned char)(80+i*10)});
+    }
+    
+    DrawRectangle(JX0-5,JY0,COLUNAS*JW+10,ANDARES*JH,(Color){60,55,70,255});
+    
+    for(int r=0;r<ANDARES;r++) for(int c=0;c<COLUNAS;c++){
+        int idx=r*COLUNAS+c;
+        float wx=JX0+c*JW, wy=JY0+r*JH;
+        Color wc;
+        if(jans[idx].fogo>0){
+            unsigned char rr=200,gg=(unsigned char)(40+(1.f-jans[idx].fogo)*100);
+            wc=(Color){rr,gg,0,255};
+            float oy=sinf(GetTime()*4+c+r)*6;
+            DrawCircle((int)(wx+JW/2),(int)(wy+JH/2+oy),14,(Color){255,80,0,200});
+            DrawCircle((int)(wx+JW/2),(int)(wy+JH/2-10+oy),9,(Color){255,180,0,180});
         } else {
-            bool menu = (st == MENU); Rectangle b = menu ? bPlay : bRest;
-            DrawText(menu ? "JUMP GAME" : "GAME OVER", TELA_L/2 - MeasureText(menu ? "JUMP GAME" : "GAME OVER", 40)/2, 200, 40, menu ? DARKBLUE : RED);
-            DrawRectangleRounded(b, 0.3f, 10, CheckCollisionPointRec(m, b) ? BLUE : DARKBLUE);
-            DrawText(menu ? "JOGAR" : "REINICIAR", b.x + b.width/2 - MeasureText(menu ? "JOGAR" : "REINICIAR", 24)/2, b.y + 18, 24, WHITE);
+            wc=jans[idx].salvo?(Color){100,200,255,180}:(Color){40,50,80,200};
         }
+        DrawRectangle((int)wx,(int)wy,JW-4,JH-4,wc);
+        DrawRectangleLines((int)wx,(int)wy,JW-4,JH-4,(Color){20,20,30,255});
+        if(jans[idx].figurante&&jans[idx].fogo>0) DrawFigurante((int)wx,(int)wy,jans[idx].fogo);
+    }
+    
+    for(int i=0;i<MJT;i++){if(!jts[i].on)continue;
+        Color wc={100,180,255,(unsigned char)(jts[i].a*255)};
+        DrawCircle((int)jts[i].x,(int)jts[i].y,5,wc);
+        DrawCircle((int)jts[i].x-4,(int)jts[i].y-4,3,(Color){180,220,255,(unsigned char)(jts[i].a*200)});
+    }
+    
+    int cx=camX2;
+    DrawRectangle(cx,H-100,130,50,(Color){200,30,30,255});
+    DrawRectangle(cx+5,H-120,55,25,(Color){200,30,30,255});
+    DrawRectangle(cx+8,H-118,30,18,(Color){180,220,255,200});
+    DrawRectangle(cx+70,H-98,55,8,(Color){150,20,20,255});
+    DrawCircle(cx+20,H-50,18,(Color){30,30,30,255}); DrawCircle(cx+20,H-50,10,(Color){80,80,80,255});
+    DrawCircle(cx+100,H-50,18,(Color){30,30,30,255}); DrawCircle(cx+100,H-50,10,(Color){80,80,80,255});
+    DrawRectangle(cx,H-50,130,5,(Color){160,160,160,255});
+    
+    float rad=mangAngle*(PI/180.f);
+    int mx=cx+60, my=H-90;
+    DrawLine(mx,my,mx+(int)(cosf(rad)*45),my+(int)(sinf(rad)*45),(Color){80,200,80,255});
+    DrawCircle(mx+(int)(cosf(rad)*45),my+(int)(sinf(rad)*45),5,(Color){200,120,0,255});
+    
+    DrawRectangle(cx+50,H-108,30,10,(Color){255,255,0,255});
+    DrawCircle(cx+55,H-108,5,(int)(GetTime()*4)%2==0?(Color){255,50,50,255}:(Color){50,50,255,255});
+    DrawCircle(cx+75,H-108,5,(int)(GetTime()*4)%2==0?(Color){50,50,255,255}:(Color){255,50,50,255});
+    
+    DrawHUD(chances,timer,"ESPACO: Jato de agua",2);
+    char inf[64]; sprintf(inf,"Fogo apagado: %d/%d",fogoApagado2,fogoTotal2);
+    DrawText(inf,W/2-MeasureText(inf,16)/2,H-26,16,(Color){100,200,255,255});
+    if(vitoria){ DrawMissaoConcluida(2,timer,"Predio salvo!"); DrawFoguetes(); }
+}
+
+static Rectangle plats3[14];
+static int salvas3=0;
+
+static void InitM3(void){
+    float ps[][3]={{60,700,100},{350,640,100},{100,570,100},{400,500,100},
+                   {50,440,120},{320,380,110},{150,320,100},{420,260,100},
+                   {80,200,120},{300,140,140},{180,80,160}};
+    for(int i=0;i<11;i++) plats3[i]=(Rectangle){ps[i][0],ps[i][1],ps[i][2],14};
+    int posv[]={1,3,5,7,9};
+    for(int i=0;i<5;i++){
+        int pi=posv[i];
+        vits[i]=(Vitima){plats3[pi].x+plats3[pi].width/2-8,plats3[pi].y-28,false,true};
+    }
+    salvas3=0;
+    ResetParts();
+}
+
+static void DrawM3(float bx,float by,bool dir,int fr,int chances,float timer,bool vitoria){
+    ClearBackground((Color){20,18,15,255});
+    for(int i=0;i<5;i++){
+        int rx=i*120-10, rh=300+i*40;
+        DrawRectangle(rx,H-rh,100,rh,(Color){50,45,40,200});
+        for(int r=0;r<rh/60;r++) for(int c=0;c<3;c++){
+            bool qbr=GetRandomValue(0,3)==0;
+            DrawRectangle(rx+8+c*28,H-rh+10+r*55,22,36,qbr?(Color){30,25,20,255}:(Color){200,150,100,120});
+        }
+    }
+    DrawParts();
+    for(int i=0;i<6;i++){
+        float fx=40+i*100, fy=H-30+sinf(GetTime()*2+i)*8;
+        DrawCircle((int)fx,(int)fy,16,(Color){255,80,0,180});
+    }
+    for(int i=0;i<8;i++){
+        int ex=30+i*70;
+        DrawRectangle(ex,H-20,50,20,(Color){80,70,55,255});
+        DrawRectangle(ex+5,H-35,30,15,(Color){90,80,65,255});
+    }
+    for(int i=0;i<11;i++){
+        Rectangle r=plats3[i];
+        DrawRectangleRec(r,(Color){100,90,80,255});
+        DrawRectangle((int)r.x,(int)r.y,(int)r.width,3,(Color){160,150,130,255});
+        for(int s=0;s<(int)r.width/20;s++)
+            DrawLine((int)r.x+s*20,(int)r.y,(int)r.x+s*20+10,(int)r.y+14,(Color){70,65,55,255});
+    }
+    for(int i=0;i<5;i++){if(!vits[i].on)continue;
+        if(!vits[i].salvo){
+            int vx=(int)vits[i].x, vy=(int)vits[i].y;
+            DrawRectangle(vx+3,vy,10,10,(Color){255,200,140,255});
+            DrawRectangle(vx,vy+10,16,10,(Color){200,80,80,255});
+            DrawRectangle(vx-2,vy+11,4,8,(Color){200,80,80,255});
+            DrawRectangle(vx+14,vy+11,4,8,(Color){200,80,80,255});
+            DrawRectangle(vx+4,vy+6,6,3,(Color){20,20,20,255});
+            int bof=(int)(GetTime()*3)%2;
+            DrawText("SOCORRO!",vx-14,vy-22+bof,10,(Color){255,255,0,255});
+        }
+    }
+    DrawBombeiro((int)bx,(int)by,dir,fr);
+    DrawHUD(chances,timer,"",3);
+    char inf[48]; sprintf(inf,"Resgates: %d/5",salvas3);
+    DrawText(inf,W/2-MeasureText(inf,16)/2,H-26,16,(Color){255,200,100,255});
+    if(vitoria){ DrawMissaoConcluida(3,timer,"Todos salvos!"); DrawFoguetes(); }
+}
+
+static Rectangle plats4[8];
+static float camX4;
+static float mangAngle4;
+static int barrisApagados4;
+
+static void InitM4(void){
+    float ps[][3]={{0,H-20,W},{60,600,120},{350,550,120},{100,450,130},
+                   {400,400,100},{150,300,130},{380,240,110},{200,160,160}};
+    for(int i=0;i<8;i++) plats4[i]=(Rectangle){ps[i][0],ps[i][1],ps[i][2],14};
+    for(int i=0;i<6;i++){
+        Color cs[]={(Color){255,80,0,255},(Color){255,120,0,255},(Color){200,60,0,255}};
+        float ys[]={580,530,430,380,280,220};
+        barris[i]=(Barril){60.f+i*90.f,ys[i],
+            (GetRandomValue(0,1)?1.f:-1.f)*GetRandomValue(10,25)/10.f,3,true,cs[GetRandomValue(0,2)]};
+    }
+    camX4=W/2-50; mangAngle4=-90.f; barrisApagados4=0;
+    ResetJatos();
+}
+
+static void UpdM4(float dt){
+    if(IsKeyDown(KEY_LEFT)||IsKeyDown(KEY_A))  camX4-=3;
+    if(IsKeyDown(KEY_RIGHT)||IsKeyDown(KEY_D)) camX4+=3;
+    if(camX4<0)camX4=0; if(camX4>W-110)camX4=W-110;
+    if(IsKeyDown(KEY_UP)||IsKeyDown(KEY_W))    mangAngle4-=2.f;
+    if(IsKeyDown(KEY_DOWN)||IsKeyDown(KEY_S))  mangAngle4+=2.f;
+    if(mangAngle4>-10.f)mangAngle4=-10.f; if(mangAngle4<-170.f)mangAngle4=-170.f;
+    if(IsKeyPressed(KEY_SPACE)){
+        for(int i=0;i<MJT;i++) if(!jts[i].on){
+            float rad=mangAngle4*(PI/180.f);
+            jts[i]=(Jato){camX4+55,H-95,cosf(rad)*16.f,sinf(rad)*16.f,1.f,true};
+            break;
+        }
+    }
+    
+    for(int i=0;i<MJT;i++){if(!jts[i].on)continue;
+        jts[i].x+=jts[i].vx; jts[i].y+=jts[i].vy; jts[i].vy+=0.3f;
+        jts[i].a-=0.01f; if(jts[i].a<=0||jts[i].y>H){jts[i].on=false;continue;}
+        for(int b=0;b<6;b++){if(!barris[b].on)continue;
+            if(jts[i].x>barris[b].x&&jts[i].x<barris[b].x+30&&
+               jts[i].y>barris[b].y&&jts[i].y<barris[b].y+50){
+                barris[b].hp--;
+                jts[i].on=false;
+                if(barris[b].hp<=0){barris[b].on=false;barrisApagados4++;
+                    for(int p=0;p<8;p++) EmitPart(barris[b].x+15,barris[b].y);}
+            }
+        }
+    }
+    
+    for(int b=0;b<6;b++){if(!barris[b].on)continue;
+        barris[b].x+=barris[b].vx*dt*60;
+        if(barris[b].x<0||barris[b].x>W-30)barris[b].vx*=-1;
+    }
+}
+
+static void DrawM4(int chances,float timer,bool vitoria){
+    ClearBackground((Color){20,15,10,255});
+    for(int i=0;i<8;i++){
+        DrawRectangleRec(plats4[i],(Color){90,70,40,255});
+        DrawRectangle((int)plats4[i].x,(int)plats4[i].y,(int)plats4[i].width,3,(Color){140,110,60,255});
+    }
+    DrawParts();
+    for(int b=0;b<6;b++){if(!barris[b].on)continue;
+        Color bc=barris[b].c;
+        DrawRectangle((int)barris[b].x,(int)barris[b].y,30,50,bc);
+        DrawRectangle((int)barris[b].x+2,(int)barris[b].y,26,8,(Color){60,60,60,255});
+        DrawRectangle((int)barris[b].x+2,(int)barris[b].y+42,26,8,(Color){60,60,60,255});
+        DrawText("GAS",(int)barris[b].x+2,(int)barris[b].y+14,11,(Color){255,255,0,255});
+        DrawText("!!!",(int)barris[b].x+4,(int)barris[b].y+26,11,(Color){255,255,255,255});
+        float oy=sinf(GetTime()*5+b)*4;
+        DrawCircle((int)barris[b].x+15,(int)barris[b].y-8+(int)oy,8,(Color){255,120,0,220});
+        DrawCircle((int)barris[b].x+15,(int)barris[b].y-18+(int)oy,5,(Color){255,220,50,180});
+        DrawRectangle((int)barris[b].x,(int)barris[b].y-8,30,4,(Color){60,0,0,255});
+        DrawRectangle((int)barris[b].x,(int)barris[b].y-8,barris[b].hp*10,4,(Color){0,220,0,255});
+    }
+    for(int i=0;i<MJT;i++){if(!jts[i].on)continue;
+        Color wc={100,180,255,(unsigned char)(jts[i].a*255)};
+        DrawCircle((int)jts[i].x,(int)jts[i].y,5,wc);
+    }
+    int cx=(int)camX4;
+    DrawRectangle(cx,H-105,110,50,(Color){200,30,30,255});
+    DrawRectangle(cx+5,H-125,50,24,(Color){200,30,30,255});
+    DrawRectangle(cx+8,H-122,28,16,(Color){180,220,255,200});
+    DrawCircle(cx+18,H-55,16,(Color){30,30,30,255}); DrawCircle(cx+18,H-55,8,(Color){80,80,80,255});
+    DrawCircle(cx+90,H-55,16,(Color){30,30,30,255}); DrawCircle(cx+90,H-55,8,(Color){80,80,80,255});
+    DrawRectangle(cx,H-55,110,5,(Color){160,160,160,255});
+    float rad=mangAngle4*(PI/180.f);
+    int mx=cx+55, my=H-95;
+    DrawLine(mx,my,mx+(int)(cosf(rad)*40),my+(int)(sinf(rad)*40),(Color){80,200,80,255});
+    DrawCircle(mx+(int)(cosf(rad)*40),my+(int)(sinf(rad)*40),4,(Color){200,120,0,255});
+    DrawHUD(chances,timer,"ESPACO: Jato | Setas: Mover/Mirar",4);
+    char inf[48]; sprintf(inf,"Barris: %d/6",barrisApagados4);
+    DrawText(inf,W/2-MeasureText(inf,16)/2,H-26,16,(Color){255,200,100,255});
+    if(vitoria){ DrawMissaoConcluida(4,timer,"Deposito seguro!"); DrawFoguetes(); }
+}
+
+static Rectangle plats5[12];
+static float obsTimer5;
+static int obsDestroyed5;
+static bool topo5;
+
+static void InitM5(void){
+    float ps[][3]={{0,H-20,W},{80,660,90},{400,620,90},{60,540,100},
+                   {350,490,100},{120,420,100},{380,360,90},{100,290,110},
+                   {340,230,100},{80,165,120},{300,110,130},{150,50,180}};
+    for(int i=0;i<12;i++) plats5[i]=(Rectangle){ps[i][0],ps[i][1],ps[i][2],14};
+    for(int i=0;i<12;i++) obs[i].on=false;
+    obsTimer5=0; obsDestroyed5=0; topo5=false;
+    ResetParts();
+}
+
+static void SpawnObs(void){
+    for(int i=0;i<12;i++) if(!obs[i].on){
+        int tipo=GetRandomValue(0,2);
+        obs[i].on=true; obs[i].tipo=tipo;
+        if(tipo==0){ obs[i].x=(float)GetRandomValue(0,W); obs[i].y=-20; obs[i].vx=GetRandomValue(-20,20)/10.f; obs[i].vy=GetRandomValue(30,60)/10.f; }
+        else if(tipo==1){ obs[i].x=(float)GetRandomValue(30,W-30); obs[i].y=-10; obs[i].vx=0; obs[i].vy=GetRandomValue(50,90)/10.f; }
+        else { obs[i].x=(float)GetRandomValue(50,W-50); obs[i].y=(float)GetRandomValue(100,H-200); obs[i].vx=0; obs[i].vy=0; }
+        break;
+    }
+}
+
+static bool CheckObsHit(float bx,float by){
+    Rectangle rb={(float)(bx+4),(float)by,24,52};
+    for(int i=0;i<12;i++){if(!obs[i].on)continue;
+        Rectangle ro;
+        if(obs[i].tipo==0||obs[i].tipo==2) ro=(Rectangle){obs[i].x-16,obs[i].y-16,32,32};
+        else ro=(Rectangle){obs[i].x-6,obs[i].y,12,40};
+        if(CheckCollisionRecs(rb,ro)) return true;
+    }
+    return false;
+}
+
+static void UpdM5(float dt){
+    obsTimer5+=dt;
+    if(obsTimer5>0.8f){ obsTimer5=0; SpawnObs(); SpawnObs(); }
+    for(int i=0;i<12;i++){if(!obs[i].on)continue;
+        obs[i].x+=obs[i].vx*60*dt; obs[i].y+=obs[i].vy*60*dt;
+        if(obs[i].tipo==2){
+            obs[i].vy+=dt; if(obs[i].vy>1.5f)obs[i].on=false;
+        } else if(obs[i].y>H+50) obs[i].on=false;
+    }
+    if(GetRandomValue(0,4)==0) EmitPart((float)GetRandomValue(0,W),(float)(H-20));
+    UpdParts();
+}
+
+static void DrawM5BG(void){
+    ClearBackground((Color){12,5,5,255});
+    for(int c=0;c<6;c++) for(int r=0;r<12;r++){
+        int bx2=c*100,by2=r*70;
+        DrawRectangle(bx2,by2,95,65,(Color){55,40,30,(unsigned char)(150+GetRandomValue(-20,20))});
+        DrawRectangleLines(bx2,by2,95,65,(Color){30,20,10,255});
+    }
+    for(int i=0;i<8;i++){
+        float fx=20+i*73,fy=H-15+sinf(GetTime()*3+i)*10;
+        DrawCircle((int)fx,(int)fy,22,(Color){255,60,0,200});
+        DrawCircle((int)fx,(int)(fy-18),14,(Color){255,160,0,180});
+    }
+    DrawParts();
+}
+
+static void DrawM5(float bx,float by,bool dir,int fr,int chances,float timer,bool vitoria){
+    DrawM5BG();
+    for(int i=0;i<12;i++){
+        DrawRectangleRec(plats5[i],(Color){80,65,50,255});
+        DrawRectangle((int)plats5[i].x,(int)plats5[i].y,(int)plats5[i].width,3,(Color){160,130,90,255});
+    }
+    for(int i=0;i<12;i++){if(!obs[i].on)continue;
+        if(obs[i].tipo==0){
+            float pulse=sinf(GetTime()*10)*3;
+            DrawCircle((int)obs[i].x,(int)obs[i].y,(int)(16+pulse),(Color){255,80,0,230});
+            DrawCircle((int)obs[i].x,(int)obs[i].y,(int)(10+pulse),(Color){255,200,0,200});
+        } else if(obs[i].tipo==1){
+            DrawRectangle((int)obs[i].x-6,(int)obs[i].y,12,40,(Color){120,100,70,255});
+            DrawRectangle((int)obs[i].x-8,(int)obs[i].y,16,6,(Color){200,160,80,255});
+        } else {
+            float r2=obs[i].vy*60;
+            DrawCircle((int)obs[i].x,(int)obs[i].y,(int)r2,(Color){255,100,0,(unsigned char)(200-obs[i].vy*100)});
+            DrawCircle((int)obs[i].x,(int)obs[i].y,(int)(r2*0.6f),(Color){255,220,50,(unsigned char)(180-obs[i].vy*80)});
+        }
+    }
+    Rectangle tp=plats5[11];
+    DrawRectangle((int)tp.x,(int)tp.y-40,(int)tp.width,35,(Color){0,150,0,220});
+    const char *ch="HELICOPTERO";
+    DrawText(ch,(int)(tp.x+tp.width/2-MeasureText(ch,13)/2),(int)(tp.y-36),13,WHITE);
+    int hx=(int)tp.x+(int)tp.width/2;
+    DrawRectangle(hx-25,tp.y-80,50,20,(Color){80,80,200,255});
+    DrawRectangle(hx-40,tp.y-74,80,5,(Color){60,60,180,255});
+    DrawRectangle(hx-4,tp.y-60,8,12,(Color){80,80,200,255});
+    DrawRectangle(hx-4,tp.y-65,12,6,(Color){60,60,180,255});
+    DrawCircle(hx-10,tp.y-70,4,(Color){180,220,255,200});
+    DrawBombeiro((int)bx,(int)by,dir,fr);
+    DrawHUD(chances,timer,"",5);
+    char inf[48]; sprintf(inf,"Chegue ao helicoptero!");
+    DrawText(inf,W/2-MeasureText(inf,15)/2,H-26,15,(Color){255,160,50,255});
+    if(vitoria){ DrawMissaoConcluida(5,timer,"JOGO CONCLUIDO! HEROI LENDARIO!"); DrawFoguetes(); }
+}
+
+int main(void){
+    InitWindow(W,H,"Bombeiro Heroi - 5 Missoes");
+    SetTargetFPS(60);
+
+    Estado st=MENU;
+    int missao=1, chances=3, animFr=0;
+    float bx=0,by=0,vy=0,timer=0,animT=0,vitT=0,rocketT=0;
+    bool noChao=false, virado=true, vitoria=false;
+
+    InitM1();
+    ResetRockets();
+
+    #define RESET_BOM(PX,PY) do{ bx=(PX); by=(PY); vy=0; noChao=false; }while(0)
+    #define START_MISSAO(M, INITFN, PX, PY) do{ \
+        st=(M); missao=(M)-1; timer=0; chances=3; vitoria=false; vitT=0; \
+        INITFN(); RESET_BOM(PX,PY); ResetParts(); ResetRockets(); \
+    }while(0)
+
+    while(!WindowShouldClose()){
+        float dt=GetFrameTime(); if(dt>0.05f)dt=0.05f;
+        Vector2 mouse=GetMousePosition();
+
+        animT+=dt; if(animT>0.09f){animFr++;animT=0;}
+
+        if(vitoria){ vitT+=dt; rocketT+=dt;
+            if(rocketT>0.35f){rocketT=0;LaunchRocket();}
+            UpdFoguetes();
+            if(vitT>3.5f && st!=VITFINAL){
+                if(st==M1){START_MISSAO(M2,InitM2, camX2+45.f,(float)(H-160));}
+                else if(st==M2){START_MISSAO(M3,InitM3, plats3[0].x+40,plats3[0].y-52);}
+                else if(st==M3){START_MISSAO(M4,InitM4, camX4+45.f,(float)(H-160));}
+                else if(st==M4){START_MISSAO(M5,InitM5, plats5[0].x+40,plats5[0].y-52);}
+                else if(st==M5){ st=VITFINAL; vitoria=true; vitT=0; }
+            }
+        }
+
+        bool usaPlataformer=(st==M1||st==M3||st==M5);
+        Rectangle *plats_arr=NULL; int plats_n=0;
+        if(st==M1){plats_arr=dg1;plats_n=ND;}
+        else if(st==M3){plats_arr=plats3;plats_n=11;}
+        else if(st==M5){plats_arr=plats5;plats_n=12;}
+
+        if(usaPlataformer && !vitoria){
+            timer+=dt;
+            if(IsKeyDown(KEY_LEFT)||IsKeyDown(KEY_A)){bx-=4.5f;virado=false;}
+            if(IsKeyDown(KEY_RIGHT)||IsKeyDown(KEY_D)){bx+=4.5f;virado=true;}
+            if(bx<0)bx=0; if(bx>W-32)bx=W-32;
+            if((IsKeyDown(KEY_SPACE)||IsKeyDown(KEY_UP)||IsKeyDown(KEY_W))&&noChao){vy=-14.f;noChao=false;}
+            vy+=0.45f; by+=vy;
+            noChao=false;
+            Rectangle rb={(float)(bx+4),(float)by,24,52};
+            for(int i=0;i<plats_n;i++){
+                if(vy>0 && rb.x+rb.width>plats_arr[i].x && rb.x<plats_arr[i].x+plats_arr[i].width
+                   && by+52>=plats_arr[i].y-2 && by+52<=plats_arr[i].y+plats_arr[i].height+8){
+                    by=plats_arr[i].y-52; vy=0; noChao=true; break;
+                }
+            }
+            if(by>H+30){chances--; if(chances<=0)st=GAMEOVER;
+                else{bx=plats_arr[0].x+40;by=plats_arr[0].y-52;vy=0;}}
+        }
+
+        if(st==M1 && !vitoria){
+            fogoT+=dt; if(fogoT>3.f){fogoT=0;scrollFogo+=18.f;}
+            float altFogo=(float)(H-55)-scrollFogo;
+            if(by+52>=altFogo){chances--;
+                if(chances<=0)st=GAMEOVER;
+                else{bx=dg1[degAtual].x+40;by=dg1[degAtual].y-52;vy=0;scrollFogo-=50;if(scrollFogo<0)scrollFogo=0;}}
+            for(int i=0;i<ND;i++){
+                Rectangle rb={(float)(bx+4),(float)by,24,52};
+                if(vy>=0&&rb.x+rb.width>dg1[i].x&&rb.x<dg1[i].x+dg1[i].width
+                   &&by+52>=dg1[i].y-2&&by+52<=dg1[i].y+dg1[i].height+8){
+                    if(i>degAtual){hpGanho+=i-degAtual;degAtual=i;scrollFogo+=45.f*(i-degAtual);}
+                    if(i==ND-1&&noChao)vitoria=true;
+                }
+            }
+            if(GetRandomValue(0,3)==0) EmitPart((float)GetRandomValue(0,W),altFogo);
+            UpdParts();
+        }
+        else if(st==M2 && !vitoria){
+            timer+=dt; UpdM2(dt);
+            if(fogoApagado2>=fogoTotal2&&fogoTotal2>0)vitoria=true;
+        }
+        else if(st==M3 && !vitoria){
+            for(int i=0;i<5;i++){if(!vits[i].on||vits[i].salvo)continue;
+                if(fabsf(bx-vits[i].x)<30&&fabsf(by-vits[i].y)<40){
+                    vits[i].salvo=true;salvas3++;}}
+            if(salvas3>=5)vitoria=true;
+            if(GetRandomValue(0,5)==0) EmitPart((float)GetRandomValue(0,W),(float)(H-20));
+            UpdParts();
+        }
+        else if(st==M4 && !vitoria){
+            timer+=dt; UpdM4(dt); UpdParts();
+            if(barrisApagados4>=6)vitoria=true;
+        }
+        else if(st==M5 && !vitoria){
+            timer+=dt; UpdM5(dt);
+            if(CheckObsHit(bx,by)){chances--;
+                if(chances<=0)st=GAMEOVER;
+                else{bx=plats5[0].x+40;by=plats5[0].y-52;vy=0;
+                    for(int i=0;i<12;i++)obs[i].on=false;}}
+            Rectangle tp=plats5[11];
+            if(noChao&&bx>tp.x&&bx<tp.x+tp.width-30&&fabsf(by-tp.y+52)<10)vitoria=true;
+        }
+
+        BeginDrawing();
+
+        if(st==MENU){
+            ClearBackground((Color){15,12,30,255});
+            for(int i=0;i<8;i++){
+                float fx=40.f+i*75,fy=(float)(H-50)+sinf(GetTime()*2+i)*8;
+                DrawCircle((int)fx,(int)fy,26,(Color){220,50,0,200});
+                DrawCircle((int)fx,(int)(fy-20),15,(Color){255,140,0,180});
+            }
+            DrawRectangle(0,H-60,W,60,(Color){20,6,0,220});
+            DrawRectangle(0,80,W,80,(Color){180,20,0,230});
+            DrawRectangle(0,83,W,4,(Color){255,190,0,255}); DrawRectangle(0,154,W,4,(Color){255,190,0,255});
+            const char *t1="BOMBEIRO HEROI";
+            DrawText(t1,W/2-MeasureText(t1,36)/2+2,105,36,(Color){0,0,0,180});
+            DrawText(t1,W/2-MeasureText(t1,36)/2, 103,36,(Color){255,230,50,255});
+            DrawText("5 MISSOES - SEJA O HEROI!",W/2-MeasureText("5 MISSOES - SEJA O HEROI!",17)/2,163,17,(Color){255,170,90,255});
+            const char *ms[]={"M1: Suba a escada em chamas","M2: Apague o predio com a mangueira",
+                              "M3: Resgate vitimas nos escombros","M4: Destrua os barris de gas",
+                              "M5: Escape pelo helicoptero!"};
+            for(int i=0;i<5;i++) DrawText(ms[i],60,240+i*36,17,(Color){200,200,220,220});
+            DrawBombeiro(260,490,true,(int)(GetTime()*10));
+            Rectangle bp={170,600,260,52}; bool hov=CheckCollisionPointRec(mouse,bp);
+            DrawRectangleRounded(bp,0.3f,8,hov?(Color){255,55,0,255}:(Color){170,25,0,255});
+            DrawRectangleRoundedLines(bp,0.3f,8,(Color){255,200,0,255});
+            const char *bt="INICIAR MISSAO 1";
+            DrawText(bt,(int)(bp.x+bp.width/2-MeasureText(bt,20)/2),(int)(bp.y+16),20,WHITE);
+            if(hov&&IsMouseButtonPressed(MOUSE_LEFT_BUTTON)){
+                START_MISSAO(M1,InitM1,dg1[0].x+40,dg1[0].y-52);
+                degAtual=0;hpGanho=0;scrollFogo=0;fogoT=0;
+            }
+
+        } else if(st==M1){
+            ClearBackground((Color){28,18,38,255});
+            for (int col=0;col<6;col++) for (int row=0;row<11;row++) {
+                int wx=28+col*90, wy=40+row*68;
+                bool ac=((col+row+(int)(GetTime()*0.25f))%3!=0);
+                DrawRectangle(wx,wy,32,48,ac?(Color){255,215,110,55}:(Color){18,18,28,70});
+                DrawRectangleLines(wx,wy,32,48,(Color){55,55,75,100});
+            }
+            float altFogo=(float)(H-55)-scrollFogo;
+            for (int i=0;i<4;i++) {
+                float fy=altFogo+55+(float)i*22;
+                if (fy<H) DrawRectangle(0,(int)fy,W,24,(Color){35,15,3,(unsigned char)(110-i*20)});
+            }
+            DrawChamas(altFogo);
+            for (int i=0;i<ND;i++) {
+                DrawDegrau(dg1[i]);
+                char nd[4]; sprintf(nd,"%d",i+1);
+                DrawText(nd,(int)(dg1[i].x+dg1[i].width/2-5),(int)(dg1[i].y-14),12,(Color){255,195,90,210});
+            }
+            Rectangle top=dg1[ND-1];
+            DrawRectangle((int)top.x-8,(int)top.y-34,(int)top.width+16,28,(Color){0,170,0,210});
+            DrawText("CHEGADA",(int)(top.x+top.width/2-MeasureText("CHEGADA",13)/2),(int)(top.y-29),13,WHITE);
+            DrawLine((int)(top.x-4),(int)(top.y-38),(int)(top.x-4),(int)(top.y-68),WHITE);
+            DrawTriangle((Vector2){top.x-4,top.y-68},(Vector2){top.x-4,top.y-54},(Vector2){top.x+18,top.y-61},(Color){255,40,40,255});
+            DrawBombeiro((int)bx,(int)by,virado,animFr);
+            DrawHUD(chances,timer,"",1);
+            char hp[24];sprintf(hp,"+%d HP",hpGanho);
+            DrawText(hp,412,13,22,(Color){90,255,90,255});
+            char dg[32];sprintf(dg,"Degrau %d/%d",degAtual+1,ND);
+            DrawText(dg,W-MeasureText(dg,14)-6,H-26,14,(Color){195,195,195,210});
+            if(vitoria){DrawMissaoConcluida(1,timer,"Proximo: Predio em chamas!");DrawFoguetes();}
+
+        } else if(st==M2){
+            DrawM2(chances,timer,vitoria);
+
+        } else if(st==M3){
+            DrawM3(bx,by,virado,animFr,chances,timer,vitoria);
+
+        } else if(st==M4){
+            DrawM4(chances,timer,vitoria);
+
+        } else if(st==M5){
+            DrawM5(bx,by,virado,animFr,chances,timer,vitoria);
+
+        } else if(st==VITFINAL){
+            ClearBackground((Color){8,16,45,255});
+            DrawFoguetes();
+            DrawRectangle(0,H/2-130,W,180,(Color){20,0,80,245});
+            DrawRectangle(0,H/2-134,W,8,(Color){255,195,0,255});
+            DrawRectangle(0,H/2+44,W,8,(Color){255,195,0,255});
+            const char *v1="PARABENS, LENDA!";
+            DrawText(v1,W/2-MeasureText(v1,34)/2+2,H/2-118,34,(Color){0,0,0,160});
+            DrawText(v1,W/2-MeasureText(v1,34)/2,H/2-120,34,(Color){255,230,50,255});
+            const char *v2="VOCE COMPLETOU TODAS AS 5 MISSOES!";
+            DrawText(v2,W/2-MeasureText(v2,18)/2,H/2-70,18,WHITE);
+            const char *v3="A cidade foi salva pelo maior heroi";
+            const char *v4="bombeiro de todos os tempos!";
+            DrawText(v3,W/2-MeasureText(v3,17)/2,H/2-42,17,(Color){200,200,255,255});
+            DrawText(v4,W/2-MeasureText(v4,17)/2,H/2-18,17,(Color){200,200,255,255});
+            DrawText("BOMBEIRO HEROI LENDARIO",W/2-MeasureText("BOMBEIRO HEROI LENDARIO",22)/2,H/2+18,22,(Color){255,180,0,255});
+            Rectangle br={175,H/2+100,250,50}; bool hov=CheckCollisionPointRec(mouse,br);
+            DrawRectangleRounded(br,0.3f,8,hov?(Color){0,155,0,255}:(Color){0,95,0,255});
+            DrawRectangleRoundedLines(br,0.3f,8,(Color){90,255,90,255});
+            DrawText("JOGAR NOVAMENTE",(int)(br.x+br.width/2-MeasureText("JOGAR NOVAMENTE",19)/2),(int)(br.y+15),19,WHITE);
+            if(hov&&IsMouseButtonPressed(MOUSE_LEFT_BUTTON)){st=MENU;ResetRockets();}
+
+        } else {
+            ClearBackground((Color){10,4,4,255});
+            for(int i=0;i<8;i++){float fx=40+i*72,fy=(float)(H-45)+sinf(GetTime()*1.5f+i)*7;
+                DrawCircle((int)fx,(int)fy,28,(Color){200,35,0,185});
+                DrawCircle((int)fx,(int)(fy-20),16,(Color){255,110,0,165});}
+            DrawRectangle(0,H-60,W,60,(Color){25,6,0,210});
+            DrawGameOver(missao);
+            const char *sub="O fogo foi mais forte desta vez...";
+            DrawText(sub,W/2-MeasureText(sub,18)/2,268,18,(Color){200,145,95,255});
+            char sg[64];sprintf(sg,"Missao %d  |  Tempo: %02d:%02d",missao,(int)timer/60,(int)timer%60);
+            DrawText(sg,W/2-MeasureText(sg,17)/2,308,17,(Color){175,175,175,255});
+            Rectangle bt2={175,390,250,52}; bool hov=CheckCollisionPointRec(mouse,bt2);
+            DrawRectangleRounded(bt2,0.3f,8,hov?(Color){195,45,0,255}:(Color){120,25,0,255});
+            DrawRectangleRoundedLines(bt2,0.3f,8,(Color){255,140,45,255});
+            DrawText("TENTAR NOVAMENTE",(int)(bt2.x+bt2.width/2-MeasureText("TENTAR NOVAMENTE",19)/2),(int)(bt2.y+16),19,WHITE);
+            if(hov&&IsMouseButtonPressed(MOUSE_LEFT_BUTTON)){
+                vitoria=false; vitT=0; chances=3; timer=0;
+                if(missao==1){InitM1();degAtual=0;hpGanho=0;scrollFogo=0;fogoT=0;
+                    RESET_BOM(dg1[0].x+40,dg1[0].y-52);st=M1;}
+                else if(missao==2){InitM2();RESET_BOM(camX2+45,(float)(H-160));st=M2;}
+                else if(missao==3){salvas3=0;InitM3();RESET_BOM(plats3[0].x+40,plats3[0].y-52);st=M3;}
+                else if(missao==4){InitM4();RESET_BOM(camX4+45,(float)(H-160));st=M4;}
+                else {InitM5();RESET_BOM(plats5[0].x+40,plats5[0].y-52);st=M5;}
+                ResetRockets(); ResetParts();
+            }
+            Rectangle bm={175,460,250,48}; hov=CheckCollisionPointRec(mouse,bm);
+            DrawRectangleRounded(bm,0.3f,8,hov?(Color){55,55,85,255}:(Color){28,28,55,255});
+            DrawRectangleRoundedLines(bm,0.3f,8,(Color){140,140,195,255});
+            DrawText("MENU PRINCIPAL",(int)(bm.x+bm.width/2-MeasureText("MENU PRINCIPAL",19)/2),(int)(bm.y+14),19,LIGHTGRAY);
+            if(hov&&IsMouseButtonPressed(MOUSE_LEFT_BUTTON)){st=MENU;ResetRockets();}
+        }
+
         EndDrawing();
     }
     CloseWindow(); return 0;
